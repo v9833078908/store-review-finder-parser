@@ -1,0 +1,11 @@
+.git
+.env
+venv
+__pycache__
+*.pyc
+data
+reports
+docs
+frontend
+lead-finder
+.DS_Store

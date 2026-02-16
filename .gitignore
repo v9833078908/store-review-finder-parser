@@ -1,0 +1,62 @@
+# --- OS / Editor ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# --- Environment / Secrets ---
+.env
+.env.*
+!.env.example
+*.local
+
+# --- Python ---
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.hypothesis/
+.coverage
+.coverage.*
+htmlcov/
+dist/
+build/
+site/
+pip-wheel-metadata/
+
+# --- Node / Next.js ---
+node_modules/
+.next/
+out/
+.turbo/
+coverage/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# --- Runtime Data / Artifacts ---
+data/
+reports/
+tmp/
+temp/
+*.sqlite3
+*.db
+*.pid
+*.log
+
+# --- Prevent accidental embedded repos ---
+frontend/.git/
+lead-finder/.git/

@@ -52,6 +52,7 @@ data/
 reports/
 tmp/
 temp/
+.embedded-git-backups/
 *.sqlite3
 *.db
 *.pid

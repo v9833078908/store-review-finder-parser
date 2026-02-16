@@ -1,0 +1,102 @@
+x-backend-common: &backend-common
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: review-parser-backend:local
+  env_file:
+    - ./.env
+  volumes:
+    - ./data:/app/data
+    - ./reports:/app/reports
+
+services:
+  review-api:
+    <<: *backend-common
+    container_name: review-api
+    environment:
+      MODE: server
+      PORT: 8000
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:51100,http://127.0.0.1:51100,http://localhost:51200,http://127.0.0.1:51200}
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health').read()",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: review-parser-frontend:local
+    container_name: review-parser-frontend
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      INTERNAL_API_URL: ${INTERNAL_API_URL:-http://review-api:8000}
+    ports:
+      - "51200:51200"
+    depends_on:
+      review-api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  lead-finder:
+    build:
+      context: ./lead-finder
+      dockerfile: Dockerfile
+    image: review-parser-lead-finder:local
+    container_name: review-parser-lead-finder
+    environment:
+      NEXT_PUBLIC_DASHBOARD_URL: ${NEXT_PUBLIC_DASHBOARD_URL:-http://localhost:51200}
+    ports:
+      - "51100:51100"
+    depends_on:
+      frontend:
+        condition: service_started
+    restart: unless-stopped
+
+  ngrok:
+    image: ngrok/ngrok:latest
+    container_name: review-parser-ngrok
+    profiles:
+      - tunnel
+    depends_on:
+      frontend:
+        condition: service_started
+    command:
+      - http
+      - --authtoken=${NGROK_AUTHTOKEN:-}
+      - --url=${NGROK_URL:-https://unserenaded-nonresponsibly-haydee.ngrok-free.dev}
+      - frontend:51200
+    ports:
+      - "${NGROK_INSPECT_PORT:-4041}:4040"
+    restart: unless-stopped
+
+  review-parser:
+    <<: *backend-common
+    container_name: review-parser-cli
+    profiles:
+      - cli
+    environment:
+      GOOGLE_PLAY_URL: ${GOOGLE_PLAY_URL:-https://play.google.com/store/search?q=pirate%20ships&c=apps&hl=en}
+      MAX_REVIEWS: ${MAX_REVIEWS:-50}
+      LANGS: ${LANGS:-en,ru}
+      COUNTRY: ${COUNTRY:-us}
+      MODE: ${MODE:-unified}
+    command:
+      - "${GOOGLE_PLAY_URL:-https://play.google.com/store/search?q=pirate%20ships&c=apps&hl=en}"
+      - "--max-reviews"
+      - "${MAX_REVIEWS:-50}"
+      - "--langs"
+      - "${LANGS:-en,ru}"
+      - "--country"
+      - "${COUNTRY:-us}"

@@ -1,0 +1,7 @@
+google-play-scraper>=1.2.7
+anthropic>=0.40.0
+python-dotenv>=1.0.0
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+sse-starlette>=2.0.0
+pytest>=8.3.0

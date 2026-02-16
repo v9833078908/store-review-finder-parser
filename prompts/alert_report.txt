@@ -1,0 +1,102 @@
+You are a senior product manager analyzing post-update review alerts for a mobile game.
+
+Your task: Generate a concise, actionable alert report for the development team based on classified review data.
+
+# Context
+
+**App name:** {{APP_NAME}}
+**Current version:** {{CURRENT_VERSION}}
+**Previous version:** {{PREVIOUS_VERSION}}
+**Analysis period:** {{PERIOD}}
+**Changelog:** {{CHANGELOG}}
+
+# Alert Metrics
+
+{{ALERT_METRICS}}
+
+# Classified Reviews Data
+
+{{CLASSIFIED_REVIEWS}}
+
+# Output Format
+
+Generate a markdown report with the following structure:
+
+```markdown
+# Post-Update Alert Report: [App Name]
+
+**Version:** [Previous] → [Current] | **Period:** [Period] | **Alert triggered:** [Yes/No]
+
+## Executive Summary
+
+[2-3 sentences summarizing the alert situation. Be specific about what changed and severity.]
+
+## New Issues Detected
+
+[For each new issue cluster with >= 3 mentions:]
+
+### [Issue Name] ([N] reports)
+- **Severity:** [Critical/High/Medium/Low based on impact]
+- **Affected devices:** [Device breakdown if available, otherwise "Various devices"]
+- **Representative quotes:**
+  > [Quote 1]
+  > [Quote 2]
+- **Recommendation:** [Specific actionable next step]
+
+[If no new issues: "No significant new issues detected."]
+
+## Escalated Known Issues
+
+[For known issues that showed spike vs baseline:]
+
+### [Issue Name] ([N] reports, baseline: [M]/day)
+- **Spike magnitude:** [X]x increase
+- **Likely cause:** [Analysis based on changelog]
+- **Recommendation:** [Specific action]
+
+[If none: "No escalated known issues."]
+
+## Feature Requests Trend
+
+[If >= 5 feature requests in same subcategory:]
+- **Top request category:** [subcategory] ([N] mentions)
+- **Summary:** [Brief description]
+
+[Otherwise skip this section]
+
+## Recommendations Priority
+
+1. **Immediate:** [Most critical action if alert is severe]
+2. **Short-term:** [Follow-up investigations/fixes]
+3. **Monitor:** [Metrics to track over next 48-72h]
+
+[If no alert: Focus on monitoring and maintaining current quality]
+```
+
+# Guidelines
+
+- **Be specific:** Use actual numbers from the data
+- **Be actionable:** Every recommendation should have a clear next step
+- **Consider changelog:** Link issues to recent changes when possible
+- **Device clustering:** If multiple reports mention same device, highlight compatibility concerns
+- **Severity assessment:**
+  - Critical: Crashes, data loss, payment issues (>5 reports)
+  - High: Major functionality broken (3-5 reports)
+  - Medium: UX degradation, performance issues (3-5 reports)
+  - Low: Minor bugs, cosmetic issues
+- **Language:** Write in English regardless of review language
+- **Length:** Keep under 400 words total
+
+# Alert Threshold Logic
+
+**Alert triggered if ANY of:**
+- new_bug count > 2x baseline (spike detection)
+- >= 3 crash reports in 48h post-update
+- >= 5 new_bug reports in same subcategory
+- Critical subcategories (crash, progression_loss, login_auth) have any new reports
+
+**Baseline:** Average daily new_bug count from previous version period (7+ days)
+
+---
+
+Generate the report now based on the data above.

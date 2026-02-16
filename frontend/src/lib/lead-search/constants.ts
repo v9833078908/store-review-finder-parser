@@ -1,0 +1,62 @@
+export const COLLECTIONS = [
+  { value: "TOP_FREE", label: "Top Free" },
+  { value: "TOP_PAID", label: "Top Paid" },
+  { value: "GROSSING", label: "Top Grossing" },
+] as const
+
+export const CATEGORIES = [
+  { value: "ALL", label: "All Categories" },
+  { value: "GAME", label: "Games" },
+  { value: "GAME_ACTION", label: "Games - Action" },
+  { value: "GAME_ADVENTURE", label: "Games - Adventure" },
+  { value: "GAME_ARCADE", label: "Games - Arcade" },
+  { value: "GAME_BOARD", label: "Games - Board" },
+  { value: "GAME_CARD", label: "Games - Card" },
+  { value: "GAME_CASINO", label: "Games - Casino" },
+  { value: "GAME_CASUAL", label: "Games - Casual" },
+  { value: "GAME_EDUCATIONAL", label: "Games - Educational" },
+  { value: "GAME_MUSIC", label: "Games - Music" },
+  { value: "GAME_PUZZLE", label: "Games - Puzzle" },
+  { value: "GAME_RACING", label: "Games - Racing" },
+  { value: "GAME_ROLE_PLAYING", label: "Games - Role Playing" },
+  { value: "GAME_SIMULATION", label: "Games - Simulation" },
+  { value: "GAME_SPORTS", label: "Games - Sports" },
+  { value: "GAME_STRATEGY", label: "Games - Strategy" },
+  { value: "GAME_TRIVIA", label: "Games - Trivia" },
+  { value: "GAME_WORD", label: "Games - Word" },
+  { value: "FAMILY", label: "Family" },
+] as const
+
+export const SUPPORTED_COUNTRIES = [
+  "us",
+  "gb",
+  "de",
+  "fr",
+  "es",
+  "it",
+  "jp",
+  "kr",
+  "cn",
+  "in",
+  "br",
+  "ca",
+  "au",
+  "mx",
+  "nl",
+  "se",
+  "no",
+  "dk",
+  "fi",
+  "pl",
+] as const
+
+export const DEFAULTS = {
+  collection: "TOP_FREE",
+  category: "ALL",
+  country: "us",
+  lang: "en",
+  maxApps: 50,
+  maxReviews: 200,
+  windowDays: 365,
+  minAgeDays: 0,
+} as const

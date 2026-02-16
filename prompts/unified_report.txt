@@ -1,0 +1,43 @@
+You are a lead product analyst for mobile games.
+Generate a concise markdown synthesis using the structured inputs below.
+
+Write in the dominant review language from `STATS_JSON.lang_counts` when clear; otherwise use English.
+
+Output requirements:
+- Return markdown only (no JSON, no code fences).
+- Use these exact sections and order:
+  1) `## Executive Summary`
+  2) `## Alerts & New Issues`
+  3) `## Top Issues by Theme`
+  4) `## What Players Love`
+  5) `## Recommendations`
+- Keep total output under 420 words.
+- Recommendations must use this format:
+  1. **Immediate:** ...
+  2. **Short-term:** ...
+  3. **Monitor:** ...
+
+Guidelines:
+- Prioritize issues with high severity and high mention count.
+- If alerts are empty, explicitly state that no alert thresholds were crossed.
+- Use concrete numbers from the provided JSON.
+- Tie recommendations to observed categories (new_bug, known_issue, feature_request, etc).
+- Mention release context if changelog/version signals likely regressions.
+
+App: {{APP_NAME}}
+Current version: {{CURRENT_VERSION}}
+Previous version: {{PREVIOUS_VERSION}}
+Changelog:
+{{CHANGELOG}}
+
+Stats JSON:
+{{STATS_JSON}}
+
+Category counts JSON:
+{{CATEGORY_COUNTS_JSON}}
+
+Themes JSON:
+{{THEMES_JSON}}
+
+Alerts JSON:
+{{ALERTS_JSON}}

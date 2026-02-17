@@ -3,14 +3,22 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 import os
 import re
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from statistics import mean
 from typing import Any, TypeVar
 
 from anthropic import AsyncAnthropic
+from observability import (
+    current_trace_id,
+    observe,
+    update_current_generation,
+    update_current_span,
+)
 
 DEFAULT_MODEL = "claude-sonnet-4-5-20250929"
 PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
@@ -19,10 +27,53 @@ MAX_API_RETRIES = 3
 T = TypeVar("T")
 
 
+def _resolve_log_level(raw_level: str) -> int:
+    normalized = (raw_level or "INFO").strip().upper()
+    return {
+        "CRITICAL": logging.CRITICAL,
+        "ERROR": logging.ERROR,
+        "WARNING": logging.WARNING,
+        "INFO": logging.INFO,
+        "DEBUG": logging.DEBUG,
+    }.get(normalized, logging.INFO)
+
+
+def _build_logger() -> logging.Logger:
+    logger = logging.getLogger("review_parser")
+    if logger.handlers:
+        return logger
+
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+    logger.setLevel(_resolve_log_level(os.getenv("APP_LOG_LEVEL", "INFO")))
+    logger.propagate = False
+    return logger
+
+
+APP_LOGGER = _build_logger()
+
+
+def log_event(event: str, **fields: Any) -> None:
+    payload = {"event": event, **fields}
+    trace_id = current_trace_id()
+    if trace_id and "trace_id" not in payload:
+        payload["trace_id"] = trace_id
+    APP_LOGGER.info(json.dumps(payload, ensure_ascii=False, default=str))
+
+
 def load_prompt(filename: str) -> str:
     path = PROMPTS_DIR / filename
     with path.open("r", encoding="utf-8") as handle:
-        return handle.read()
+        content = handle.read()
+    log_event(
+        "prompt_loaded",
+        prompt=filename,
+        version=hashlib.sha256(content.encode("utf-8")).hexdigest()[:12],
+        chars=len(content),
+    )
+    return content
 
 
 def prompt_version(filename: str) -> str:
@@ -120,9 +171,11 @@ def get_client_and_model() -> tuple[AsyncAnthropic, str]:
     if not api_key:
         raise RuntimeError("ANTHROPIC_API_KEY is missing.")
     model = os.getenv("ANTHROPIC_MODEL", DEFAULT_MODEL).strip() or DEFAULT_MODEL
+    log_event("llm_client_initialized", provider="anthropic", model=model)
     return AsyncAnthropic(api_key=api_key), model
 
 
+@observe(name="llm_call", as_type="generation", capture_input=False, capture_output=False)
 async def call_model(
     client: AsyncAnthropic,
     model: str,
@@ -130,9 +183,42 @@ async def call_model(
     max_tokens: int,
     temperature: float = 0.2,
     retries: int = MAX_API_RETRIES,
+    prompt_name: str = "unknown",
 ) -> str:
+    started = time.perf_counter()
+    prompt_hash = hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:12]
+    log_event(
+        "llm_call_started",
+        provider="anthropic",
+        model=model,
+        prompt_name=prompt_name,
+        prompt_chars=len(prompt),
+        prompt_hash=prompt_hash,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        tools_enabled=False,
+    )
+    update_current_generation(
+        name=f"llm:{prompt_name}",
+        model=model,
+        input={
+            "prompt_name": prompt_name,
+            "prompt_chars": len(prompt),
+            "prompt_hash": prompt_hash,
+        },
+        metadata={
+            "provider": "anthropic",
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+        },
+        model_parameters={
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        },
+    )
     for attempt in range(retries):
         try:
+            attempt_started = time.perf_counter()
             response = await client.messages.create(
                 model=model,
                 max_tokens=max_tokens,
@@ -140,9 +226,77 @@ async def call_model(
                 messages=[{"role": "user", "content": prompt}],
             )
             chunks = [block.text for block in response.content if getattr(block, "type", "") == "text"]
-            return "".join(chunks).strip()
-        except Exception:
+            text = "".join(chunks).strip()
+            log_event(
+                "llm_call_succeeded",
+                provider="anthropic",
+                model=model,
+                prompt_name=prompt_name,
+                attempt=attempt + 1,
+                duration_ms=round((time.perf_counter() - attempt_started) * 1000),
+                total_duration_ms=round((time.perf_counter() - started) * 1000),
+                output_chars=len(text),
+                stop_reason=getattr(response, "stop_reason", None),
+            )
+            usage = getattr(response, "usage", None)
+            usage_details: dict[str, int] = {}
+            if usage is not None:
+                for key in (
+                    "input_tokens",
+                    "output_tokens",
+                    "cache_creation_input_tokens",
+                    "cache_read_input_tokens",
+                ):
+                    value = getattr(usage, key, None)
+                    if isinstance(value, int):
+                        usage_details[key] = value
+
+            update_current_generation(
+                output={
+                    "output_chars": len(text),
+                    "stop_reason": getattr(response, "stop_reason", None),
+                    "attempt": attempt + 1,
+                },
+                usage_details=usage_details or None,
+                metadata={
+                    "provider": "anthropic",
+                    "prompt_name": prompt_name,
+                },
+                status_message="succeeded",
+            )
+            return text
+        except Exception as exc:
+            log_event(
+                "llm_call_failed_attempt",
+                provider="anthropic",
+                model=model,
+                prompt_name=prompt_name,
+                attempt=attempt + 1,
+                duration_ms=round((time.perf_counter() - attempt_started) * 1000),
+                error=str(exc),
+            )
+            update_current_span(
+                metadata={
+                    "provider": "anthropic",
+                    "prompt_name": prompt_name,
+                    "failed_attempt": attempt + 1,
+                    "error": str(exc),
+                }
+            )
             if attempt == retries - 1:
+                log_event(
+                    "llm_call_failed",
+                    provider="anthropic",
+                    model=model,
+                    prompt_name=prompt_name,
+                    total_duration_ms=round((time.perf_counter() - started) * 1000),
+                    retries=retries,
+                )
+                update_current_generation(
+                    output={"error": str(exc)},
+                    status_message="failed",
+                    metadata={"provider": "anthropic", "prompt_name": prompt_name},
+                )
                 raise
             await asyncio.sleep(2**attempt)
     return ""

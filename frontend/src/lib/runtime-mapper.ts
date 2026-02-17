@@ -1,5 +1,13 @@
-import type { ApiAlert, ApiClassification, ApiReview, RunArtifact } from "@/lib/api-types"
+import type {
+  ApiAlert,
+  ApiClassification,
+  ApiReportLayer,
+  ApiReportLayers,
+  ApiReview,
+  RunArtifact,
+} from "@/lib/api-types"
 import type { DashboardData } from "@/lib/dashboard-types"
+import { buildEmptyReportLayers, type ReportLayer, type ReportLayers } from "@/lib/dashboard-types"
 import type {
   ActionItem,
   Alert,
@@ -144,7 +152,8 @@ function buildReviews(artifact: RunArtifact): Review[] {
       productId: slugify(artifact.package_name || artifact.app_name || "app"),
       rating: Number(item.rating || 0),
       text: String(item.text || ""),
-      lang: String(item.lang || (artifact.langs && artifact.langs[0]) || "en"),
+      lang: String(item.original_lang || item.lang || (artifact.langs && artifact.langs[0]) || "en"),
+      originalLang: String(item.original_lang || item.lang || (artifact.langs && artifact.langs[0]) || "en"),
       country,
       appVersion: String(item.version || defaultVersion),
       category,
@@ -319,32 +328,162 @@ function buildTimeline(
   return points
 }
 
-function buildActionItems(alerts: Alert[], clusters: Cluster[]): ActionItem[] {
-  const now = Date.now()
-  const sources = alerts.length ? alerts : []
-  if (!sources.length && clusters.length) {
-    return clusters.slice(0, 3).map((cluster, index) => ({
+function importanceFromCluster(cluster: Cluster): number {
+  const base = Math.min(10, cluster.severity * 2)
+  const volumeBoost = Math.min(2, Math.floor(cluster.volume7d / 10))
+  return Math.min(10, Math.max(1, base + volumeBoost))
+}
+
+type UrgencyBucket = "immediate" | "short_term" | "monitor"
+
+const URGENCY_IMPORTANCE: Record<UrgencyBucket, number> = {
+  immediate: 9,
+  short_term: 6,
+  monitor: 3,
+}
+
+const URGENCY_TYPE: Record<UrgencyBucket, ActionItem["type"]> = {
+  immediate: "hotfix",
+  short_term: "investigation",
+  monitor: "faq",
+}
+
+function splitIntoActions(text: string): string[] {
+  // Split by sentence-ending period followed by a capital letter or end
+  return text
+    .split(/\.\s+(?=[A-Z])/)
+    .map((s) => s.replace(/\.$/, "").trim())
+    .filter((s) => s.length > 10)
+}
+
+function detectBucket(text: string): UrgencyBucket | null {
+  const match = text.match(/\*{0,2}(immediate|short[\s-]?term|monitor)\s*:?\*{0,2}/i)
+  if (!match) return null
+  const raw = match[1].toLowerCase().replace(/[\s-]+/g, "_")
+  if (raw === "immediate") return "immediate"
+  if (raw.startsWith("short")) return "short_term"
+  if (raw === "monitor") return "monitor"
+  return null
+}
+
+function parseRecommendationsFromMarkdown(markdown: string): ActionItem[] {
+  const lines = markdown.split("\n")
+  const items: ActionItem[] = []
+
+  let inSection = false
+  let bucket: UrgencyBucket | null = null
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+
+    if (/^##\s+Recommend/i.test(trimmed)) {
+      inSection = true
+      continue
+    }
+    if (inSection && /^##\s+/.test(trimmed)) break
+    if (!inSection || !trimmed) continue
+
+    // Check if this line sets a new bucket (header or inline)
+    const detected = detectBucket(trimmed)
+    if (detected) {
+      bucket = detected
+      // If inline format: "1. **Immediate:** action text here"
+      const afterBucket = trimmed.replace(/^(?:\d+\.\s+)?[-*]*\s*\*{0,2}(?:immediate|short[\s-]?term|monitor)\s*:?\*{0,2}\s*:?\s*/i, "").trim()
+      if (afterBucket) {
+        for (const action of splitIntoActions(afterBucket)) {
+          items.push({
+            id: `act-${items.length + 1}`,
+            type: URGENCY_TYPE[bucket],
+            title: action,
+            rationale: "",
+            importance: URGENCY_IMPORTANCE[bucket],
+            relatedClusterId: "",
+          })
+        }
+      }
+      continue
+    }
+
+    if (!bucket) continue
+
+    // Indented bullet items: "   - Action text here"
+    const bulletMatch = trimmed.match(/^[-*]\s+(.+)$/)
+    if (bulletMatch) {
+      const text = bulletMatch[1].trim()
+      if (text.length > 10) {
+        items.push({
+          id: `act-${items.length + 1}`,
+          type: URGENCY_TYPE[bucket],
+          title: text,
+          rationale: "",
+          importance: URGENCY_IMPORTANCE[bucket],
+          relatedClusterId: "",
+        })
+      }
+      continue
+    }
+
+    // Non-bullet, non-empty line that isn't a numbered item — end bucket
+    if (!/^\d+\./.test(trimmed)) bucket = null
+  }
+
+  return items
+}
+
+const MONETIZATION_KEYWORDS = /monetiz|pay.to.win|pricing|ad[\s-]?remov|ad[\s-]?frequen|forced\s+ad|unskippable|bundle/i
+const MONETIZATION_MAX_IMPORTANCE = 5
+
+function enrichActionsWithClusters(actions: ActionItem[], clusters: Cluster[]): ActionItem[] {
+  return actions.map((action) => {
+    const titleLower = action.title.toLowerCase()
+    const isMonetization = MONETIZATION_KEYWORDS.test(action.title)
+    const matched = clusters.find((c) => {
+      const words = c.title.toLowerCase().split(/\s+/)
+      return words.some((w) => w.length > 3 && titleLower.includes(w))
+    })
+
+    let importance = action.importance
+    let rationale = action.rationale
+    let clusterId = action.relatedClusterId
+
+    if (matched) {
+      const volumeBoost = Math.min(2, Math.floor(matched.volume7d / 10))
+      const severityBoost = matched.severity >= 5 ? 1 : 0
+      importance = Math.min(10, importance + volumeBoost + severityBoost)
+      rationale = `${matched.volume7d} reports (severity ${matched.severity}/5, avg ${matched.ratingAvg}★). ${matched.recommendedAction}`
+      clusterId = matched.id
+    }
+
+    if (isMonetization) {
+      importance = Math.min(importance, MONETIZATION_MAX_IMPORTANCE)
+    }
+
+    return { ...action, importance, rationale, relatedClusterId: clusterId }
+  })
+}
+
+function buildActionItems(alerts: Alert[], clusters: Cluster[], markdown?: string): ActionItem[] {
+  // First try: parse structured recommendations from LLM-generated markdown
+  if (markdown) {
+    const parsed = parseRecommendationsFromMarkdown(markdown)
+    if (parsed.length > 0) {
+      return enrichActionsWithClusters(parsed, clusters).slice(0, 8)
+    }
+  }
+
+  // Fallback: derive from clusters
+  if (clusters.length) {
+    return clusters.slice(0, 5).map((cluster, index) => ({
       id: `act-${index + 1}`,
-      type: "investigation",
+      type: "investigation" as const,
       title: `Investigate ${cluster.title}`,
-      owner: "TBD",
-      status: "pending",
+      rationale: cluster.recommendedAction,
+      importance: importanceFromCluster(cluster),
       relatedClusterId: cluster.id,
-      nextCheckAt: new Date(now + (index + 1) * 24 * 60 * 60 * 1000).toISOString(),
-      notes: cluster.recommendedAction,
     }))
   }
 
-  return sources.slice(0, 5).map((alert, index) => ({
-    id: `act-${index + 1}`,
-    type: actionTypeFromSeverity(alert.severity),
-    title: alert.title,
-    owner: "TBD",
-    status: index === 0 ? "in_progress" : "pending",
-    relatedClusterId: alert.clusterId || clusters[0]?.id || "",
-    nextCheckAt: new Date(now + (index + 1) * 24 * 60 * 60 * 1000).toISOString(),
-    notes: alert.description,
-  }))
+  return []
 }
 
 function buildIssueAndReputationStats(
@@ -403,6 +542,218 @@ function buildIssueAndReputationStats(
   }
 }
 
+function normalizeReportLayer(
+  key: ReportLayer["key"],
+  raw: ApiReportLayer | undefined,
+  fallbackTitle: string,
+  fallbackNarrative: string,
+): ReportLayer {
+  return {
+    key,
+    title: String(raw?.title || fallbackTitle),
+    narrative: String(raw?.narrative || fallbackNarrative),
+    cards: (raw?.cards || []).map((card, index) => ({
+      id: String(card.id || `${key}-card-${index + 1}`),
+      title: String(card.title || "Untitled"),
+      value: String(card.value || ""),
+      description: card.description ? String(card.description) : undefined,
+      severity: typeof card.severity === "number" ? Number(card.severity) : undefined,
+      meta: card.meta && typeof card.meta === "object" ? card.meta : undefined,
+    })),
+    metrics: raw?.metrics && typeof raw.metrics === "object" ? raw.metrics : {},
+    updatedAt: String(raw?.updated_at || new Date().toISOString()),
+  }
+}
+
+export function buildDerivedReportLayers(
+  reviews: Review[],
+  alerts: Alert[],
+  clusters: Cluster[],
+  actionItems: ActionItem[],
+): ReportLayers {
+  const nowIso = new Date().toISOString()
+  const totalReviews = reviews.length
+  const negativeCount = reviews.filter((review) => review.sentiment === "negative").length
+  const negativeShare = totalReviews ? negativeCount / totalReviews : 0
+  const avgRating = totalReviews ? avg(reviews.map((review) => review.rating)) : 0
+
+  const fallback = buildEmptyReportLayers(nowIso)
+  fallback.summary = {
+    key: "summary",
+    title: "Сводка",
+    narrative:
+      totalReviews > 0
+        ? `Анализ охватывает ${totalReviews} отзывов. Доля негатива: ${(negativeShare * 100).toFixed(1)}%, средняя оценка: ${avgRating.toFixed(2)}.`
+        : "Недостаточно отзывов для формирования сводки.",
+    cards: [
+      {
+        id: "summary-rating",
+        title: "Average rating",
+        value: avgRating.toFixed(2),
+      },
+      {
+        id: "summary-negative-share",
+        title: "Negative share",
+        value: `${(negativeShare * 100).toFixed(1)}%`,
+      },
+      {
+        id: "summary-sample",
+        title: "Reviews analyzed",
+        value: String(totalReviews),
+      },
+    ],
+    metrics: {
+      reviews_analyzed: totalReviews,
+      negative_share: Number(negativeShare.toFixed(4)),
+      avg_rating: Number(avgRating.toFixed(2)),
+    },
+    updatedAt: nowIso,
+  }
+
+  fallback.signals = {
+    key: "signals",
+    title: "Сигналы",
+    narrative:
+      alerts.length > 0
+        ? `Выявлено ${alerts.length} активных сигналов. Приоритет: critical и spike.`
+        : "Активных сигналов в выбранном окне не выявлено.",
+    cards: alerts.slice(0, 5).map((alert) => ({
+      id: alert.id,
+      title: alert.title,
+      value: `${alert.current}`,
+      description: alert.description,
+      meta: {
+        severity: alert.severity,
+        baseline: alert.baseline,
+        metric: alert.metric,
+      },
+    })),
+    metrics: {
+      alerts_total: alerts.length,
+      critical_alerts: alerts.filter((alert) => alert.severity === "critical").length,
+      spike_alerts: alerts.filter((alert) => alert.type === "spike").length,
+    },
+    updatedAt: nowIso,
+  }
+
+  fallback.issues = {
+    key: "issues",
+    title: "Проблемы",
+    narrative:
+      clusters.length > 0
+        ? "Проблемы отсортированы по severity и объему упоминаний."
+        : "Кластеров проблем в выбранном окне не найдено.",
+    cards: clusters.slice(0, 5).map((cluster) => ({
+      id: cluster.id,
+      title: cluster.title,
+      value: `${cluster.volume7d}`,
+      description: `Severity ${cluster.severity}/5 · trend ${cluster.trend}%`,
+      severity: cluster.severity,
+    })),
+    metrics: {
+      issues_total: clusters.length,
+    },
+    updatedAt: nowIso,
+  }
+
+  fallback.actions = {
+    key: "actions",
+    title: "Действия",
+    narrative:
+      actionItems.length > 0
+        ? "Ниже предложенные действия и контрольные точки. Это не task-tracker статусы."
+        : clusters.length > 0
+          ? "Список действий сформирован из наиболее критичных кластеров."
+          : "Список действий не сформирован.",
+    cards:
+      actionItems.length > 0
+        ? actionItems.slice(0, 5).map((item) => ({
+          id: item.id,
+          title: item.title,
+          value: `${item.importance}/10`,
+          description: item.rationale,
+          meta: {
+            type: item.type,
+            importance: item.importance,
+          },
+        }))
+        : clusters.slice(0, 3).map((cluster, index) => ({
+          id: `fallback-action-${index + 1}`,
+          title: `Investigate ${cluster.title}`,
+          value: `${importanceFromCluster(cluster)}/10`,
+          description: cluster.recommendedAction,
+          meta: {
+            type: "investigation",
+            importance: importanceFromCluster(cluster),
+          },
+        })),
+    metrics: {
+      suggested_actions: actionItems.length > 0 ? actionItems.length : Math.min(clusters.length, 3),
+    },
+    updatedAt: nowIso,
+  }
+
+  return fallback
+}
+
+function mapReportLayers(
+  artifact: RunArtifact,
+  reviews: Review[],
+  alerts: Alert[],
+  clusters: Cluster[],
+  actionItems: ActionItem[],
+): ReportLayers {
+  const rawLayers = artifact.report_layers as ApiReportLayers | undefined
+  if (!rawLayers) {
+    return buildDerivedReportLayers(reviews, alerts, clusters, actionItems)
+  }
+
+  return {
+    summary: normalizeReportLayer(
+      "summary",
+      rawLayers.summary,
+      "Сводка",
+      "Сводка отчета недоступна.",
+    ),
+    signals: normalizeReportLayer(
+      "signals",
+      rawLayers.signals,
+      "Сигналы",
+      "Сигналы недоступны.",
+    ),
+    issues: normalizeReportLayer(
+      "issues",
+      rawLayers.issues,
+      "Проблемы",
+      "Проблемные кластеры недоступны.",
+    ),
+    actions: normalizeReportLayer(
+      "actions",
+      rawLayers.actions,
+      "Действия",
+      "Рекомендации действий недоступны.",
+    ),
+  }
+}
+
+function extractExecutiveSummary(artifact: RunArtifact): string | undefined {
+  const md = artifact.synthesis_markdown || artifact.markdown || ""
+  if (!md) return undefined
+  const lines = md.split("\n")
+  let capturing = false
+  const result: string[] = []
+  for (const line of lines) {
+    if (/^##\s+Executive\s+Summary/i.test(line)) {
+      capturing = true
+      continue
+    }
+    if (capturing && /^##\s+/.test(line)) break
+    if (capturing) result.push(line)
+  }
+  const text = result.join("\n").trim()
+  return text || undefined
+}
+
 export function mapRunArtifactToDashboard(artifact: RunArtifact): DashboardData {
   const reviews = buildReviews(artifact).sort((left, right) => {
     return new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
@@ -417,7 +768,9 @@ export function mapRunArtifactToDashboard(artifact: RunArtifact): DashboardData 
   )
 
   const { issueStats, reputationStats } = buildIssueAndReputationStats(reviews, clusters, alerts, avgRating)
-  const actionItems = buildActionItems(alerts, clusters)
+  const synthesisMarkdown = artifact.synthesis_markdown || artifact.markdown || ""
+  const actionItems = buildActionItems(alerts, clusters, synthesisMarkdown)
+  const reportLayers = mapReportLayers(artifact, reviews, alerts, clusters, actionItems)
   const timelineData = buildTimeline(
     reviews,
     alerts,
@@ -425,10 +778,7 @@ export function mapRunArtifactToDashboard(artifact: RunArtifact): DashboardData 
     artifact.current_version?.first_seen,
   )
 
-  const totalReviews =
-    Number(artifact.app_metadata?.ratings || 0) ||
-    Number(artifact.stats?.reviews_analyzed || 0) ||
-    reviews.length
+  const totalReviews = Number(artifact.stats?.reviews_analyzed || 0) || reviews.length
 
   return {
     runId: artifact.run_id || null,
@@ -454,7 +804,9 @@ export function mapRunArtifactToDashboard(artifact: RunArtifact): DashboardData 
     clusters,
     alerts,
     actionItems,
-    markdown: artifact.synthesis_markdown || artifact.markdown || "",
+    reportLayers,
+    executiveSummary: extractExecutiveSummary(artifact),
+    markdown: artifact.synthesis_markdown || artifact.markdown || undefined,
     lastUpdated: artifact.saved_at || artifact.fetched_at || new Date().toISOString(),
     source: "api",
   }

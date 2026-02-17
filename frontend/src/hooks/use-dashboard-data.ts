@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import type { RunArtifact } from "@/lib/api-types"
 import type { DashboardData, DashboardDataSource } from "@/lib/dashboard-types"
+import { buildEmptyReportLayers } from "@/lib/dashboard-types"
 import { mapRunArtifactToDashboard } from "@/lib/runtime-mapper"
 import { useDashboardPreferences } from "@/lib/dashboard-preferences"
 import { filterDashboardDataByDate } from "@/lib/dashboard-filtering"
@@ -60,7 +61,8 @@ function buildEmptyDashboardData(): DashboardData {
     clusters: [],
     alerts: [],
     actionItems: [],
-    markdown: "",
+    reportLayers: buildEmptyReportLayers(),
+    markdown: undefined,
     lastUpdated: new Date().toISOString(),
     source: "api",
   }
@@ -160,6 +162,10 @@ export function useDashboardData() {
       const artifact = await fetchRunArtifact(targetRunId, requestFilters)
       const mapped = mapRunArtifactToDashboard(artifact)
       writeCachedDashboard(scope, mapped)
+      if (typeof window !== "undefined") {
+        localStorage.setItem(TAB_RUN_ID_KEY, mapped.runId || targetRunId)
+        localStorage.setItem(LEGACY_RUN_ID_KEY, mapped.runId || targetRunId)
+      }
       setState({ data: mapped, source: "api", loading: false, error: null })
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to load dashboard data"

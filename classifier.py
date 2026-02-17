@@ -82,7 +82,7 @@ async def _classify_batch(
         .replace("{{REVIEWS_JSON}}", to_json(compact_batch))
     )
 
-    raw = await call_model(client, model, prompt, max_tokens=4000)
+    raw = await call_model(client, model, prompt, max_tokens=4000, prompt_name="classify_batch")
     parsed = json.loads(extract_json_text(raw))
 
     if not isinstance(parsed, list):

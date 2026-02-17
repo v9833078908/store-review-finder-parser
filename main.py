@@ -12,6 +12,8 @@ from dotenv import load_dotenv
 from google_play_scraper import search as gp_search
 from google_play_scraper.constants.element import ElementSpec, ElementSpecs
 
+from dashboard_config import load_dashboard_config
+from observability import init_observability, shutdown_observability
 from pipeline import run_unified_pipeline
 from report_builder import build_unified_report
 from scraper import fetch_reviews
@@ -222,10 +224,12 @@ async def _run_dashboard_mode(
             "alerts": pipeline_result["alerts"],
             "category_counts": pipeline_result["category_counts"],
             "synthesis_markdown": pipeline_result["synthesis_markdown"],
+            "report_layers": pipeline_result["report_layers"],
             "model": pipeline_result["model"],
             "prompt_versions": pipeline_result["prompt_versions"],
             "report_path": str(report_path),
             "legacy_mode": legacy_mode,
+            "dashboard_config_snapshot": load_dashboard_config(package_name, "producer"),
             "reviews": reviews,
         },
     )
@@ -238,6 +242,7 @@ async def _run_dashboard_mode(
 async def main() -> None:
     args = _parse_args()
     load_dotenv()
+    init_observability()
 
     if args.max_reviews <= 0:
         raise SystemExit("--max-reviews must be greater than zero.")
@@ -284,3 +289,5 @@ if __name__ == "__main__":
     except Exception as exc:
         print(f"Error: {exc}", file=sys.stderr)
         raise SystemExit(1)
+    finally:
+        shutdown_observability()

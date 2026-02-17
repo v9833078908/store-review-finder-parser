@@ -1,20 +1,10 @@
 "use client"
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
 import type { ActionItem } from "@/lib/types"
-import { statusColor, formatDate } from "@/lib/utils"
 import { Bug, FileText, MessageSquare, AlertOctagon, Search } from "lucide-react"
 import { useDashboardPreferences } from "@/lib/dashboard-preferences"
-import { formatActionStatus, getUiText } from "@/lib/i18n"
+import { getUiText } from "@/lib/i18n"
 
 interface ActionBoardProps {
   actions: ActionItem[]
@@ -28,6 +18,13 @@ const actionIcons = {
   investigation: Search,
 }
 
+function importanceBg(value: number): string {
+  if (value >= 9) return "bg-red-500 text-white"
+  if (value >= 7) return "bg-orange-400 text-white"
+  if (value >= 4) return "bg-amber-400 text-white"
+  return "bg-zinc-200 text-zinc-600"
+}
+
 export function ActionBoard({ actions }: ActionBoardProps) {
   const { locale } = useDashboardPreferences()
   const text = getUiText(locale)
@@ -38,43 +35,29 @@ export function ActionBoard({ actions }: ActionBoardProps) {
         <CardTitle>{text.actionBoard.title}</CardTitle>
         <CardDescription>{text.actionBoard.description}</CardDescription>
       </CardHeader>
-      <CardContent>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{text.actionBoard.action}</TableHead>
-              <TableHead>{text.actionBoard.owner}</TableHead>
-              <TableHead>{text.actionBoard.status}</TableHead>
-              <TableHead>{text.actionBoard.nextCheck}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {actions.map((action) => {
-              const Icon = actionIcons[action.type]
-              return (
-                <TableRow key={action.id}>
-                  <TableCell>
-                    <div className="flex items-center gap-2">
-                      <Icon className="h-4 w-4 text-muted-foreground" />
-                      <span className="font-medium">{action.title}</span>
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {action.owner}
-                  </TableCell>
-                  <TableCell>
-                    <Badge className={statusColor(action.status)}>
-                      {formatActionStatus(action.status, locale)}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {formatDate(action.nextCheckAt, locale)}
-                  </TableCell>
-                </TableRow>
-              )
-            })}
-          </TableBody>
-        </Table>
+      <CardContent className="space-y-2">
+        {actions.map((action) => {
+          const Icon = actionIcons[action.type]
+          return (
+            <div
+              key={action.id}
+              className="flex items-start gap-3 rounded-lg border p-3"
+            >
+              <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md ${importanceBg(action.importance)}`}>
+                <span className="font-mono text-xs font-bold">{action.importance}</span>
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5">
+                  <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <span className="text-sm font-medium leading-tight">{action.title}</span>
+                </div>
+                {action.rationale && (
+                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{action.rationale}</p>
+                )}
+              </div>
+            </div>
+          )
+        })}
       </CardContent>
     </Card>
   )

@@ -48,7 +48,7 @@ export function ReviewTable({ reviews }: ReviewTableProps) {
       text.reviewTable.date,
       text.reviewFilters.rating,
       text.reviewTable.text,
-      text.reviewFilters.language,
+      text.reviewTable.originalLang,
       text.reviewFilters.country,
       text.reviewFilters.version,
       text.reviewTable.category,
@@ -59,7 +59,7 @@ export function ReviewTable({ reviews }: ReviewTableProps) {
       r.createdAt,
       r.rating,
       `"${r.text.replace(/"/g, '""')}"`,
-      r.lang,
+      r.originalLang || r.lang,
       r.country,
       r.appVersion,
       r.category,
@@ -95,7 +95,7 @@ export function ReviewTable({ reviews }: ReviewTableProps) {
             <TableHead>{text.reviewTable.date}</TableHead>
             <TableHead>{text.reviewFilters.rating}</TableHead>
             <TableHead>{text.reviewTable.text}</TableHead>
-            <TableHead>{text.reviewTable.lang}</TableHead>
+            <TableHead>{text.reviewTable.originalLang}</TableHead>
             <TableHead>{text.reviewFilters.country}</TableHead>
             <TableHead>{text.reviewFilters.version}</TableHead>
             <TableHead>{text.reviewTable.category}</TableHead>
@@ -138,7 +138,7 @@ export function ReviewTable({ reviews }: ReviewTableProps) {
                     <TableCell className="max-w-md">
                       <div className="truncate text-sm">{preview}</div>
                     </TableCell>
-                    <TableCell className="text-xs">{review.lang}</TableCell>
+                    <TableCell className="text-xs">{review.originalLang || review.lang}</TableCell>
                     <TableCell className="text-xs">{review.country}</TableCell>
                     <TableCell className="text-xs">{review.appVersion}</TableCell>
                     <TableCell>

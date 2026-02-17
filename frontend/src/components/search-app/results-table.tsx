@@ -6,10 +6,16 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import type { AppResult, ScanParams } from "@/lib/lead-search/types"
+import type { DatePreset } from "@/lib/date-filters"
 
 interface ResultsTableProps {
   results: AppResult[]
   scanParams: ScanParams | null
+  reportCountry: string
+  reportPeriod: DatePreset
+  reportCustomFrom: string
+  reportCustomTo: string
+  canGenerateReports: boolean
 }
 
 type SortField = keyof AppResult
@@ -24,7 +30,15 @@ function SortButton({ field, label, onSort }: { field: SortField; label: string;
   )
 }
 
-export function ResultsTable({ results, scanParams }: ResultsTableProps) {
+export function ResultsTable({
+  results,
+  scanParams,
+  reportCountry,
+  reportPeriod,
+  reportCustomFrom,
+  reportCustomTo,
+  canGenerateReports,
+}: ResultsTableProps) {
   const [sortField, setSortField] = useState<SortField>("lead_score")
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc")
 
@@ -63,13 +77,15 @@ export function ResultsTable({ results, scanParams }: ResultsTableProps) {
   const buildReportUrl = (result: AppResult) => {
     const query = new URLSearchParams()
     query.set("url", result.url)
-    query.set("country", scanParams?.country || "us")
-    query.set("langs", scanParams?.lang || "en")
-    query.set("maxReviews", String(scanParams?.maxReviews || 300))
+    query.set("country", reportCountry || scanParams?.country || "us")
     query.set("source", "catalog")
     query.set("app_id", result.appId)
     query.set("lang", scanParams?.lang || "en")
-    query.set("period", "7d")
+    query.set("period", reportPeriod)
+    if (reportPeriod === "custom" && reportCustomFrom && reportCustomTo) {
+      query.set("from", reportCustomFrom)
+      query.set("to", reportCustomTo)
+    }
     return `/report?${query.toString()}`
   }
 
@@ -114,8 +130,8 @@ export function ResultsTable({ results, scanParams }: ResultsTableProps) {
               <TableCell className="text-right">{result.score.toFixed(1)}</TableCell>
               <TableCell className="text-right">{result.total_reviews_count.toLocaleString()}</TableCell>
               <TableCell className="text-right">
-                <Button variant="outline" size="sm" asChild>
-                  <a href={buildReportUrl(result)} target="_blank" rel="noopener noreferrer">
+                <Button variant="outline" size="sm" asChild disabled={!canGenerateReports}>
+                  <a href={canGenerateReports ? buildReportUrl(result) : "#"} target="_blank" rel="noopener noreferrer">
                     Сформировать отчет
                     <ExternalLink className="ml-2 h-3 w-3" />
                   </a>

@@ -103,39 +103,28 @@ const RU_ACTION_COPY: Record<
   string,
   {
     title: string
-    owner: string
-    notes: string
+    rationale: string
   }
 > = {
   "act-1": {
     title: "Исправить краш при логине на Samsung",
-    owner: "Мобильная Команда",
-    notes: "Воспроизводим на Galaxy S23 с v1.38.2. Подозрение на race condition при инициализации.",
+    rationale: "Краши на Galaxy S23 с v1.38.2, подозрение на race condition при инициализации.",
   },
   "act-2": {
     title: "Починить server sync после боя",
-    owner: "Бэкенд Команда",
-    notes: "Профилируем синхронизацию результатов боя на сервере. Проверяем таймауты в 5G-сценариях.",
+    rationale: "Сбои синхронизации результатов боя на 5G-соединениях, вызывающие потерю данных.",
   },
   "act-3": {
-    title: "Проверить алгоритм матчмейкинга v1.38.2",
-    owner: "Геймдизайн",
-    notes: "Сравнить параметры между v1.38.1 и v1.38.2. Убедиться, что изменения баланса были намеренными.",
+    title: "Проверить несанкционированные списания",
+    rationale: "Риск для доверия — пользователи сообщают о несанкционированных списаниях после покупки.",
   },
   "act-4": {
-    title: "Проверить несанкционированные списания карт",
-    owner: "Платежная Команда",
-    notes: "Риск для доверия и юридической безопасности. Проверяем флоу платежей по жалобам пользователей.",
+    title: "Проверить алгоритм матчмейкинга v1.38.2",
+    rationale: "Жалобы на баланс резко выросли после обновления v1.38.2.",
   },
   "act-5": {
-    title: "Подготовить шаблон ответа на краши",
-    owner: "Лид Поддержки",
-    notes: "Шаблон подготовлен: запрашиваем модель устройства, версию ОС и шаги воспроизведения.",
-  },
-  "act-6": {
     title: "Обновить FAQ по отключению рекламы",
-    owner: "Лид Поддержки",
-    notes: "Пояснить ad-free опции и ожидания по частоте рекламы. Отдельно закрыть вопросы по пакету за $16.",
+    rationale: "Повторяющиеся жалобы на частоту рекламы и ценность пакета за $16.",
   },
 }
 
@@ -169,9 +158,27 @@ export function localizeMockDashboardData(data: DashboardData, locale: Supported
       return {
         ...action,
         title: localized.title,
-        owner: localized.owner,
-        notes: localized.notes,
+        rationale: localized.rationale,
       }
     }),
+    reportLayers: {
+      ...data.reportLayers,
+      summary: {
+        ...data.reportLayers.summary,
+        title: "Сводка",
+      },
+      signals: {
+        ...data.reportLayers.signals,
+        title: "Сигналы",
+      },
+      issues: {
+        ...data.reportLayers.issues,
+        title: "Проблемы",
+      },
+      actions: {
+        ...data.reportLayers.actions,
+        title: "Действия",
+      },
+    },
   }
 }

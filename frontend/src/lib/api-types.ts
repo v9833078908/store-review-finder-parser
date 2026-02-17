@@ -16,6 +16,7 @@ export interface ApiReview {
   text: string
   version?: string | null
   lang?: string | null
+  original_lang?: string | null
 }
 
 export interface ApiClassification {
@@ -35,6 +36,30 @@ export interface ApiAlert {
   details?: Record<string, unknown>
 }
 
+export interface ApiReportLayerCard {
+  id: string
+  title: string
+  value: string
+  description?: string
+  severity?: number
+  meta?: Record<string, unknown>
+}
+
+export interface ApiReportLayer {
+  title: string
+  narrative: string
+  cards: ApiReportLayerCard[]
+  metrics?: Record<string, unknown>
+  updated_at?: string
+}
+
+export interface ApiReportLayers {
+  summary: ApiReportLayer
+  signals: ApiReportLayer
+  issues: ApiReportLayer
+  actions: ApiReportLayer
+}
+
 export interface RunArtifact {
   run_id: string
   package_name: string
@@ -49,9 +74,16 @@ export interface RunArtifact {
   reviews?: ApiReview[]
   classified?: ApiClassification[]
   alerts?: ApiAlert[]
+  report_layers?: ApiReportLayers
   synthesis_markdown?: string
   markdown?: string
   category_counts?: Record<string, number>
+  dashboard_config_snapshot?: Record<string, unknown>
+  window_mode?: string
+  window_from?: string | null
+  window_to?: string | null
+  sample_limit?: number
+  reviews_selected?: number
   app_metadata?: {
     ratings?: number
     score?: number
@@ -65,9 +97,15 @@ export interface ReportSummaryPayload {
   report_path: string
   artifact_path: string
   markdown: string
+  report_layers?: ApiReportLayers
   stats: Record<string, unknown>
   category_counts: Record<string, number>
   alerts_count: number
+  window_mode?: string
+  window_from?: string | null
+  window_to?: string | null
+  sample_limit?: number
+  reviews_selected?: number
 }
 
 export type ReportSseEvent =

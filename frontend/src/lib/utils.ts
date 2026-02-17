@@ -1,6 +1,6 @@
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
-import type { Severity, AlertSeverity, ReviewCategory, ActionStatus, ClusterStatus } from "./types"
+import type { Severity, AlertSeverity, ReviewCategory, ClusterStatus } from "./types"
 import { MOSCOW_TIMEZONE, toIntlLocale, type SupportedLocale } from "./i18n"
 
 export function cn(...inputs: ClassValue[]) {
@@ -84,7 +84,7 @@ export function categoryColor(category: ReviewCategory): string {
   return map[category]
 }
 
-export function statusColor(status: ActionStatus | ClusterStatus | string): string {
+export function statusColor(status: ClusterStatus | string): string {
   const map: Record<string, string> = {
     pending: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400",
     in_progress: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400",

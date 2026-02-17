@@ -13,6 +13,28 @@ CACHE_TTL = timedelta(hours=24)
 MAX_RETRIES = 3
 PAGE_DELAY_SECONDS = 2
 MAX_PAGE_SIZE = 300
+REGION_LANGUAGE_SWEEP = [
+    "en",
+    "ru",
+    "es",
+    "pt",
+    "de",
+    "fr",
+    "it",
+    "tr",
+    "pl",
+    "nl",
+    "ja",
+    "ko",
+    "zh-cn",
+    "ar",
+    "hi",
+    "id",
+    "th",
+    "vi",
+    "uk",
+    "ms",
+]
 
 
 def _cache_path(package_name: str) -> Path:
@@ -123,6 +145,7 @@ def _normalize_review(raw: dict, lang: str) -> dict:
         "text": (raw.get("content") or "").strip(),
         "version": raw.get("reviewCreatedVersion"),
         "thumbs_up": int(raw.get("thumbsUpCount") or 0),
+        "original_lang": lang,
         "lang": lang,
     }
 
@@ -187,9 +210,13 @@ def fetch_reviews(
     ):
         payload = dict(cached)
         payload["reviews"] = payload["reviews"][:max_reviews]
+        for review in payload["reviews"]:
+            if "original_lang" not in review:
+                review["original_lang"] = review.get("lang") or languages[0]
         # Fetch fresh app metadata even when using cached reviews
         app_metadata = fetch_app_metadata(package_name, languages[0], country)
         payload["app_metadata"] = app_metadata
+        payload["cache_hit"] = True
         return payload
 
     app_metadata = fetch_app_metadata(package_name, languages[0], country)
@@ -211,6 +238,7 @@ def fetch_reviews(
         "country": country,
         "langs": languages,
         "fetched_at": datetime.now(timezone.utc).isoformat(),
+        "cache_hit": False,
         "reviews": merged_reviews,
         "app_metadata": app_metadata,
     }

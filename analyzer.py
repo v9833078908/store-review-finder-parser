@@ -97,7 +97,7 @@ async def _analyze_batch(
     compact_batch = [compact_review(review, max_text=800) for review in batch]
 
     prompt = prompt_template.replace("{{REVIEWS_JSON}}", to_json(compact_batch))
-    raw = await call_model(client, model, prompt, max_tokens=1800)
+    raw = await call_model(client, model, prompt, max_tokens=1800, prompt_name="analyze_batch")
     parsed = json.loads(extract_json_text(raw))
     if isinstance(parsed, dict):
         parsed = parsed.get("themes", [])
@@ -201,7 +201,7 @@ async def _generate_summary(
         .replace("{{STATS_JSON}}", to_json(stats))
         .replace("{{THEMES_JSON}}", to_json(themes))
     )
-    return await call_model(client, model, prompt, max_tokens=1400)
+    return await call_model(client, model, prompt, max_tokens=1400, prompt_name="executive_summary")
 
 
 def _format_rating(value: float | None, fallback: float) -> str:

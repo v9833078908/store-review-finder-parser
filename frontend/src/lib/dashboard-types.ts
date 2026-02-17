@@ -9,8 +9,51 @@ import type {
   Review,
   TimelinePoint,
 } from "@/lib/types"
+import type { ReportLayerTab } from "@/lib/dashboard-config"
 
 export type DashboardDataSource = "api" | "cache" | "mock"
+
+export interface ReportLayerCard {
+  id: string
+  title: string
+  value: string
+  description?: string
+  severity?: number
+  meta?: Record<string, unknown>
+}
+
+export interface ReportLayer {
+  key: ReportLayerTab
+  title: string
+  narrative: string
+  cards: ReportLayerCard[]
+  metrics: Record<string, unknown>
+  updatedAt: string
+}
+
+export interface ReportLayers {
+  summary: ReportLayer
+  signals: ReportLayer
+  issues: ReportLayer
+  actions: ReportLayer
+}
+
+export function buildEmptyReportLayers(nowIso = new Date().toISOString()): ReportLayers {
+  const layer = (key: ReportLayerTab, title: string): ReportLayer => ({
+    key,
+    title,
+    narrative: "",
+    cards: [],
+    metrics: {},
+    updatedAt: nowIso,
+  })
+  return {
+    summary: layer("summary", "Summary"),
+    signals: layer("signals", "Signals"),
+    issues: layer("issues", "Issues"),
+    actions: layer("actions", "Actions"),
+  }
+}
 
 export interface DashboardData {
   runId: string | null
@@ -25,7 +68,9 @@ export interface DashboardData {
   clusters: Cluster[]
   alerts: Alert[]
   actionItems: ActionItem[]
-  markdown: string
+  reportLayers: ReportLayers
+  executiveSummary?: string
+  markdown?: string
   lastUpdated: string
   source: DashboardDataSource
 }

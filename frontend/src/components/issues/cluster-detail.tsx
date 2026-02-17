@@ -135,7 +135,7 @@ export function ClusterDetail({ cluster, reviews }: ClusterDetailProps) {
                       ))}
                     </div>
                     <span className="text-xs text-muted-foreground">
-                      {review.lang} · {review.country}
+                      {review.originalLang || review.lang} · {review.country}
                     </span>
                   </div>
                   <span className="text-xs text-muted-foreground">

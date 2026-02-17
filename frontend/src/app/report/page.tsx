@@ -23,13 +23,15 @@ export default function ReportPage() {
   const request = useMemo(
     () => ({
       url: searchParams.get("url") || "",
-      country: searchParams.get("country") || "us",
-      langs: searchParams.get("langs") || locale,
-      maxReviews: Number(searchParams.get("maxReviews") || 300),
+      country: searchParams.get("country") || "",
+      period:
+        (searchParams.get("period") as "7d" | "14d" | "30d" | "90d" | "custom" | null) || "14d",
+      from: searchParams.get("from") || undefined,
+      to: searchParams.get("to") || undefined,
       source: (searchParams.get("source") as "direct_url" | "catalog" | null) || "direct_url",
       appId: searchParams.get("app_id") || undefined,
     }),
-    [locale, searchParams],
+    [searchParams],
   )
 
   const { isGenerating, progress, result, error, generate } = useReport()
@@ -44,7 +46,9 @@ export default function ReportPage() {
   useEffect(() => {
     if (!result?.run_id) return
     const targetLang = searchParams.get("lang") || locale || "en"
-    const targetPeriod = searchParams.get("period") || "7d"
+    const targetPeriod = searchParams.get("period") || "14d"
+    const targetFrom = searchParams.get("from")
+    const targetTo = searchParams.get("to")
 
     try {
       sessionStorage.setItem(ACTIVE_RUN_ID_KEY, result.run_id)
@@ -60,7 +64,15 @@ export default function ReportPage() {
     } catch {
       // Ignore localStorage write errors.
     }
-    router.replace(`/command-center?lang=${encodeURIComponent(targetLang)}&period=${encodeURIComponent(targetPeriod)}`)
+    const params = new URLSearchParams()
+    params.set("lang", targetLang)
+    params.set("period", targetPeriod)
+    params.set("run_id", result.run_id)
+    if (targetPeriod === "custom" && targetFrom && targetTo) {
+      params.set("from", targetFrom)
+      params.set("to", targetTo)
+    }
+    router.replace(`/command-center?${params.toString()}`)
   }, [locale, result, router, searchParams])
 
   return (

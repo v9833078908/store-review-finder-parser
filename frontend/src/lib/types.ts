@@ -19,6 +19,7 @@ export interface Review {
   rating: number;
   text: string;
   lang: string;
+  originalLang?: string;
   country: string;
   appVersion: string;
   category: ReviewCategory;
@@ -73,17 +74,14 @@ export interface Alert {
 
 // ── Action Items ──
 export type ActionType = "hotfix" | "faq" | "reply_template" | "escalation" | "investigation";
-export type ActionStatus = "pending" | "in_progress" | "done";
 
 export interface ActionItem {
   id: string;
   type: ActionType;
   title: string;
-  owner: string;
-  status: ActionStatus;
+  rationale: string;
+  importance: number; // 1–10
   relatedClusterId: string;
-  nextCheckAt: string;
-  notes: string;
 }
 
 // ── Timeline Data ──

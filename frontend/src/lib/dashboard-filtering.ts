@@ -1,5 +1,6 @@
 import type { DashboardData } from "@/lib/dashboard-types"
 import type { Alert, Cluster, Review } from "@/lib/types"
+import { buildDerivedReportLayers } from "@/lib/runtime-mapper"
 import {
   isDateInRange,
   isMoscowDateKeyInRange,
@@ -133,7 +134,13 @@ function deriveIssueStats(clusters: Cluster[], alerts: Alert[]) {
 }
 
 export function filterDashboardDataByDate(data: DashboardData, range: ResolvedDateRange): DashboardData {
-  const filteredReviews = data.reviews.filter((review) => inRange(review, range))
+  const filteredReviews = data.reviews
+    .filter((review) => inRange(review, range))
+    .sort((left, right) => {
+      const rightTime = safeDate(right.createdAt)?.getTime() ?? 0
+      const leftTime = safeDate(left.createdAt)?.getTime() ?? 0
+      return rightTime - leftTime
+    })
   const filteredReviewIds = new Set(filteredReviews.map((review) => review.id))
   const reviewById = new Map(data.reviews.map((review) => [review.id, review]))
 
@@ -158,7 +165,7 @@ export function filterDashboardDataByDate(data: DashboardData, range: ResolvedDa
   const activeClusterIds = new Set(filteredClusters.map((cluster) => cluster.id))
 
   const filteredActions = data.actionItems.filter(
-    (action) => activeClusterIds.has(action.relatedClusterId) || isDateInRange(action.nextCheckAt, range),
+    (action) => !action.relatedClusterId || activeClusterIds.has(action.relatedClusterId),
   )
 
   const filteredTimeline = data.timelineData.filter((point) => isMoscowDateKeyInRange(point.date, range))
@@ -166,6 +173,12 @@ export function filterDashboardDataByDate(data: DashboardData, range: ResolvedDa
   const reputationStats = deriveReputationStats(data.reviews, filteredReviews, range)
   const responseStats = deriveResponseStats(filteredReviews)
   const issueStats = deriveIssueStats(filteredClusters, filteredAlerts)
+  const reportLayers = buildDerivedReportLayers(
+    filteredReviews,
+    filteredAlerts,
+    filteredClusters,
+    filteredActions,
+  )
 
   return {
     ...data,
@@ -182,5 +195,6 @@ export function filterDashboardDataByDate(data: DashboardData, range: ResolvedDa
     clusters: filteredClusters,
     alerts: filteredAlerts,
     actionItems: filteredActions,
+    reportLayers,
   }
 }

@@ -1,5 +1,4 @@
 import type {
-  ActionStatus,
   AlertSeverity,
   AlertStatus,
   ClusterStatus,
@@ -104,9 +103,8 @@ export interface UiText {
     title: string
     description: string
     action: string
-    owner: string
-    status: string
-    nextCheck: string
+    rationale: string
+    importance: string
   }
   reviewFilters: {
     rating: string
@@ -126,7 +124,7 @@ export interface UiText {
     exportCsv: string
     date: string
     text: string
-    lang: string
+    originalLang: string
     sentiment: string
     severity: string
     category: string
@@ -224,7 +222,7 @@ const EN_TEXT: UiText = {
     alertsTitle: "Alerts",
     alertsSubtitle: "Signal feed with actionable context from anomaly detection",
     reportTitle: "Generating Unified Report",
-    reportSubtitle: "Pipeline is running. You will be redirected to the dashboard when it completes.",
+    reportSubtitle: "It may take up to 5-10 minutes to complete. You will be redirected to the dashboard when it completes.",
     reportMissingUrl: "Missing `url` query parameter.",
     reportStep: "Step",
     reportPipeline: "Pipeline",
@@ -259,16 +257,15 @@ const EN_TEXT: UiText = {
   },
   actionBoard: {
     title: "Action Board",
-    description: "Ongoing tasks and next checkpoints",
+    description: "Recommended actions based on review analysis",
     action: "Action",
-    owner: "Owner",
-    status: "Status",
-    nextCheck: "Next Check",
+    rationale: "Rationale",
+    importance: "Importance",
   },
   reviewFilters: {
     rating: "Rating",
     allRatings: "All Ratings",
-    language: "Language",
+    language: "Original Language",
     allLanguages: "All Languages",
     country: "Country",
     allCountries: "All Countries",
@@ -283,7 +280,7 @@ const EN_TEXT: UiText = {
     exportCsv: "Export CSV",
     date: "Date",
     text: "Text",
-    lang: "Lang",
+    originalLang: "Original Lang",
     sentiment: "Sentiment",
     severity: "Severity",
     category: "Category",
@@ -416,16 +413,15 @@ const RU_TEXT: UiText = {
   },
   actionBoard: {
     title: "Доска Действий",
-    description: "Текущие задачи и ближайшие контрольные точки",
+    description: "Рекомендуемые действия на основе анализа отзывов",
     action: "Действие",
-    owner: "Ответственный",
-    status: "Статус",
-    nextCheck: "След. проверка",
+    rationale: "Обоснование",
+    importance: "Важность",
   },
   reviewFilters: {
     rating: "Рейтинг",
     allRatings: "Все рейтинги",
-    language: "Язык",
+    language: "Язык оригинала",
     allLanguages: "Все языки",
     country: "Страна",
     allCountries: "Все страны",
@@ -440,7 +436,7 @@ const RU_TEXT: UiText = {
     exportCsv: "Экспорт CSV",
     date: "Дата",
     text: "Текст",
-    lang: "Яз",
+    originalLang: "Ориг. яз",
     sentiment: "Тональность",
     severity: "Серьёзность",
     category: "Категория",
@@ -512,19 +508,6 @@ const SENTIMENT_LABELS: Record<SupportedLocale, Record<Sentiment, string>> = {
     negative: "негатив",
     mixed: "смешанный",
     neutral: "нейтральный",
-  },
-}
-
-const ACTION_STATUS_LABELS: Record<SupportedLocale, Record<ActionStatus, string>> = {
-  en: {
-    pending: "pending",
-    in_progress: "in progress",
-    done: "done",
-  },
-  ru: {
-    pending: "ожидает",
-    in_progress: "в работе",
-    done: "выполнено",
   },
 }
 
@@ -639,10 +622,6 @@ export function formatCategory(category: ReviewCategory, locale: SupportedLocale
 
 export function formatSentiment(sentiment: Sentiment, locale: SupportedLocale): string {
   return SENTIMENT_LABELS[locale][sentiment]
-}
-
-export function formatActionStatus(status: ActionStatus, locale: SupportedLocale): string {
-  return ACTION_STATUS_LABELS[locale][status]
 }
 
 export function formatClusterStatus(status: ClusterStatus, locale: SupportedLocale): string {

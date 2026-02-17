@@ -20,10 +20,11 @@
 5. Backend выполняет unified pipeline:
    - `run_theme_extraction` + `run_classification` (параллельно),
    - `detect_alerts` (локально),
-   - synthesis markdown + structured artifact.
+   - generation of structured `report_layers` (`summary`, `signals`, `issues`, `actions`) + structured artifact.
 6. UI отображает прогресс SSE и переводит пользователя в `/command-center?lang=...&period=...`.
 
-Ключевой принцип: markdown остается экспортом, structured data является основным источником для UI.
+Ключевой принцип: JSON structured data является основным источником для UI.  
+`markdown` сохраняется только как backward-compatible/deprecated export.
 
 ## Ports and Environment
 
@@ -200,13 +201,34 @@ docker compose --profile cli run --rm review-parser \
 {"type":"progress","pipeline":"themes","current":3,"total":6}
 {"type":"progress","pipeline":"classify","current":5,"total":10}
 {"type":"status","step":"analyzed"}
-{"type":"report","data":{"run_id":"...","markdown":"...","artifact_path":"..."}}
+{"type":"report","data":{"run_id":"...","report_layers":{...},"markdown":"...","artifact_path":"..."}}
 {"type":"done"}
 ```
 
 ### `GET /api/runs/{run_id}` (hydration contract for dashboard)
 
 Endpoint для загрузки полного structured artifact по `run_id` для восстановления состояния dashboard.
+Ключевые поля для единого layered-report:
+- `report_layers.summary`
+- `report_layers.signals`
+- `report_layers.issues`
+- `report_layers.actions`
+
+### `GET /api/dashboard-config`
+
+Получить конфигурацию dashboard по scope:
+- `package_name` (required)
+- `role_profile` (`producer|support|engineering`, optional, default `producer`)
+
+### `PUT /api/dashboard-config`
+
+Сохранить конфигурацию dashboard по scope (`package_name`, `role_profile`).
+Payload:
+- `visible_tabs`
+- `tab_order`
+- `visible_widgets`
+- `kpi_set`
+- `version`
 
 ### `GET /api/scan` (SSE)
 
@@ -225,6 +247,7 @@ Resolve endpoint для direct URL flow (`details URL`, `search URL`, `package`)
 - Review cache: `review-parser/data/*.json`
 - Version history: `review-parser/data/*_versions.json`
 - Structured runs: `review-parser/data/runs/*.json`
+- Dashboard configs: `review-parser/data/dashboard-configs/*.json`
 - Markdown reports: `review-parser/reports/*.md`
 - Legacy alert reports: `review-parser/reports/alerts/*.md`
 

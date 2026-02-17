@@ -16,6 +16,15 @@ import {
   type SupportedLocale,
 } from "@/lib/i18n"
 import {
+  buildDefaultDashboardConfig,
+  configStorageKey,
+  normalizeDashboardConfig,
+  normalizeRoleProfile,
+  type DashboardConfig,
+  type DashboardConfigUpdatePayload,
+  type DashboardRoleProfile,
+} from "@/lib/dashboard-config"
+import {
   DEFAULT_DATE_FILTER,
   filtersEqual,
   normalizeDateFilter,
@@ -36,6 +45,12 @@ interface DashboardPreferencesContextValue {
   applyDateFilter: (filter: DateFilterState) => void
   resetDateFilter: () => void
   resolvedDateRange: ReturnType<typeof resolveDateRange>
+  loadDashboardConfig: (packageName: string, roleProfile: DashboardRoleProfile) => Promise<DashboardConfig>
+  saveDashboardConfig: (
+    packageName: string,
+    roleProfile: DashboardRoleProfile,
+    payload: DashboardConfigUpdatePayload,
+  ) => Promise<DashboardConfig>
 }
 
 const DashboardPreferencesContext = createContext<DashboardPreferencesContextValue | null>(null)
@@ -99,6 +114,102 @@ export function DashboardPreferencesProvider({
     setDateFilter(DEFAULT_DATE_FILTER)
   }, [])
 
+  const loadDashboardConfig = useCallback(
+    async (packageName: string, roleProfile: DashboardRoleProfile): Promise<DashboardConfig> => {
+      const normalizedRole = normalizeRoleProfile(roleProfile)
+      const fallback = buildDefaultDashboardConfig(packageName, normalizedRole)
+      const key = configStorageKey(packageName, normalizedRole)
+
+      try {
+        const url = new URL("/api/dashboard-config", window.location.origin)
+        url.searchParams.set("package_name", packageName)
+        url.searchParams.set("role_profile", normalizedRole)
+
+        const response = await fetch(url.toString(), {
+          method: "GET",
+          cache: "no-store",
+        })
+        if (!response.ok) {
+          throw new Error(`Config request failed (${response.status})`)
+        }
+
+        const payload = (await response.json()) as Partial<DashboardConfig>
+        const normalized = normalizeDashboardConfig(payload, packageName, normalizedRole)
+        try {
+          localStorage.setItem(key, JSON.stringify(normalized))
+        } catch {
+          // Ignore storage failures.
+        }
+        return normalized
+      } catch {
+        try {
+          const raw = localStorage.getItem(key)
+          if (raw) {
+            const parsed = JSON.parse(raw) as Partial<DashboardConfig>
+            return normalizeDashboardConfig(parsed, packageName, normalizedRole)
+          }
+        } catch {
+          // Ignore fallback failures.
+        }
+        return fallback
+      }
+    },
+    [],
+  )
+
+  const saveDashboardConfig = useCallback(
+    async (
+      packageName: string,
+      roleProfile: DashboardRoleProfile,
+      payload: DashboardConfigUpdatePayload,
+    ): Promise<DashboardConfig> => {
+      const normalizedRole = normalizeRoleProfile(roleProfile)
+      const key = configStorageKey(packageName, normalizedRole)
+      const fallback = normalizeDashboardConfig(
+        {
+          package_name: packageName,
+          role_profile: normalizedRole,
+          ...payload,
+          updated_at: new Date().toISOString(),
+        },
+        packageName,
+        normalizedRole,
+      )
+
+      try {
+        const url = new URL("/api/dashboard-config", window.location.origin)
+        url.searchParams.set("package_name", packageName)
+        url.searchParams.set("role_profile", normalizedRole)
+
+        const response = await fetch(url.toString(), {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        })
+        if (!response.ok) {
+          throw new Error(`Config save failed (${response.status})`)
+        }
+
+        const serverPayload = (await response.json()) as Partial<DashboardConfig>
+        const normalized = normalizeDashboardConfig(serverPayload, packageName, normalizedRole)
+        try {
+          localStorage.setItem(key, JSON.stringify(normalized))
+        } catch {
+          // Ignore storage failures.
+        }
+        return normalized
+      } catch {
+        try {
+          localStorage.setItem(key, JSON.stringify(fallback))
+        } catch {
+          // Ignore storage failures.
+        }
+        return fallback
+      }
+    },
+    [],
+  )
+
   const resolvedDateRange = useMemo(() => resolveDateRange(dateFilter), [dateFilter])
 
   useEffect(() => {
@@ -152,8 +263,19 @@ export function DashboardPreferencesProvider({
       applyDateFilter,
       resetDateFilter,
       resolvedDateRange,
+      loadDashboardConfig,
+      saveDashboardConfig,
     }),
-    [applyDateFilter, dateFilter, locale, resetDateFilter, resolvedDateRange, setLocale],
+    [
+      applyDateFilter,
+      dateFilter,
+      loadDashboardConfig,
+      locale,
+      resetDateFilter,
+      resolvedDateRange,
+      saveDashboardConfig,
+      setLocale,
+    ],
   )
 
   return (

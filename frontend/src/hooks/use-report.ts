@@ -5,9 +5,10 @@ import type { ReportSseEvent, ReportSummaryPayload } from "@/lib/api-types"
 
 export interface ReportRequest {
   url: string
-  country?: string
-  langs?: string
-  maxReviews?: number
+  country: string
+  period: "7d" | "14d" | "30d" | "90d" | "custom"
+  from?: string
+  to?: string
   source?: "direct_url" | "catalog"
   appId?: string
 }
@@ -49,9 +50,12 @@ export function useReport() {
 
       const query = new URLSearchParams()
       query.set("url", request.url)
-      query.set("country", request.country || "us")
-      query.set("langs", request.langs || "en")
-      query.set("max_reviews", String(request.maxReviews || 300))
+      query.set("country", request.country)
+      query.set("period", request.period)
+      if (request.period === "custom" && request.from && request.to) {
+        query.set("from", request.from)
+        query.set("to", request.to)
+      }
       query.set("source", request.source || "direct_url")
       if (request.appId) {
         query.set("app_id", request.appId)

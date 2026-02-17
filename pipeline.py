@@ -7,16 +7,19 @@ import uuid
 from typing import Any, Awaitable, Callable
 
 from anthropic import AsyncAnthropic
+from observability import observe, update_current_span, update_current_trace
 
 from alerts import Alert, detect_alerts
 from analyzer import run_theme_extraction
 from classifier import run_classification
+from report_layers import build_report_layers
 from utils import (
     DEFAULT_MODEL,
     build_category_counts,
     call_model,
     get_client_and_model,
     load_prompt,
+    log_event,
     prompt_version,
     review_stats,
     to_json,
@@ -40,7 +43,7 @@ def _alerts_to_json(alerts: list[Alert]) -> list[dict[str, Any]]:
         for alert in alerts
     ]
 
-
+@observe(name="run_unified_pipeline", capture_input=False, capture_output=False)
 async def run_unified_pipeline(
     reviews: list[dict[str, Any]],
     app_name: str,
@@ -55,8 +58,22 @@ async def run_unified_pipeline(
 ) -> dict[str, Any]:
     run_id = uuid.uuid4().hex[:12]
     known_issues = known_issues or []
+    loop = asyncio.get_running_loop()
+    started_at = loop.time()
+    update_current_trace(
+        name="unified_pipeline",
+        session_id=run_id,
+        metadata={
+            "run_id": run_id,
+            "app_name": app_name,
+            "reviews_total": len(reviews),
+            "model": model,
+        },
+        tags=["pipeline", "reviews"],
+    )
 
     async def _emit(event: PipelineEvent) -> None:
+        log_event("pipeline_event", run_id=run_id, **event)
         if not progress_callback:
             return
         maybe_awaitable = progress_callback(event)
@@ -70,6 +87,23 @@ async def run_unified_pipeline(
     if model:
         resolved_model = model
 
+    log_event(
+        "pipeline_started",
+        run_id=run_id,
+        app_name=app_name,
+        reviews_total=len(reviews),
+        model=resolved_model,
+        semaphore_size=semaphore_size,
+    )
+    update_current_span(
+        metadata={
+            "run_id": run_id,
+            "app_name": app_name,
+            "reviews_total": len(reviews),
+            "semaphore_size": semaphore_size,
+        }
+    )
+
     if not reviews:
         return {
             "run_id": run_id,
@@ -79,6 +113,14 @@ async def run_unified_pipeline(
             "stats": review_stats(reviews),
             "category_counts": {},
             "synthesis_markdown": "",
+            "report_layers": build_report_layers(
+                app_name=app_name,
+                stats=review_stats(reviews),
+                reviews=reviews,
+                themes=[],
+                alerts=[],
+                category_counts={},
+            ),
             "model": resolved_model,
             "prompt_versions": {
                 "analyze_batch": prompt_version("analyze_batch.txt"),
@@ -142,9 +184,37 @@ async def run_unified_pipeline(
         model=resolved_model,
         prompt=synthesis_prompt,
         max_tokens=2200,
+        prompt_name="unified_report",
+    )
+    report_layers = build_report_layers(
+        app_name=app_name,
+        stats=stats,
+        reviews=reviews,
+        themes=themes,
+        alerts=alerts,
+        category_counts=category_counts,
     )
 
     await _emit({"type": "status", "step": "analyzed"})
+    log_event(
+        "pipeline_completed",
+        run_id=run_id,
+        app_name=app_name,
+        reviews_total=len(reviews),
+        alerts_total=len(alerts),
+        themes_total=len(themes),
+        duration_ms=round((loop.time() - started_at) * 1000),
+    )
+    update_current_trace(
+        session_id=run_id,
+        metadata={
+            "run_id": run_id,
+            "alerts_total": len(alerts),
+            "themes_total": len(themes),
+            "reviews_total": len(reviews),
+            "duration_ms": round((loop.time() - started_at) * 1000),
+        },
+    )
 
     return {
         "run_id": run_id,
@@ -154,6 +224,7 @@ async def run_unified_pipeline(
         "stats": stats,
         "category_counts": category_counts,
         "synthesis_markdown": synthesis_markdown.strip(),
+        "report_layers": report_layers,
         "model": resolved_model,
         "prompt_versions": {
             "analyze_batch": prompt_version("analyze_batch.txt"),

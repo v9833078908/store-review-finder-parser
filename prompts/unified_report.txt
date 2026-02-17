@@ -17,10 +17,23 @@ Output requirements:
   2. **Short-term:** ...
   3. **Monitor:** ...
 
-Guidelines:
+Executive Summary rules (CRITICAL — follow exactly):
+- Write 2-5 short bullet points with actionable qualitative takeaways for the studio founder / C-level.
+- Each bullet is one concrete observation a founder can act on RIGHT NOW — not a statistic.
+- DO NOT include any numbers, percentages, ratings, mention counts, severity scores, averages, or metric-like data. The dashboard already shows all metrics.
+- DO NOT write generic filler like "overall sentiment is mixed" or "the app has room for improvement". Every sentence must carry a specific, unique insight.
+- Focus on: what exactly players complain about (specific game mechanics, specific UX elements, specific content), what surprised you in the data, how different language communities differ in their feedback, what players love that the studio should protect, and emerging risks.
+- Write in the voice of a trusted advisor giving a verbal briefing — short, direct, no fluff.
+Good example bullets:
+- Players are upset about the nerf to Italy — they wanted a balance tweak, not an income reduction.
+- Russian-speaking community mostly discusses off-topic content; English speakers share gameplay tips.
+- The Southeast Asia faction gap keeps coming up — players want Thailand as a separate faction, not lumped with China.
+- Ad frequency reduction landed well — praise appeared in the last week specifically about fewer ads.
+
+Guidelines for other sections:
 - Prioritize issues with high severity and high mention count.
 - If alerts are empty, explicitly state that no alert thresholds were crossed.
-- Use concrete numbers from the provided JSON.
+- Use concrete numbers from the provided JSON in sections other than Executive Summary.
 - Tie recommendations to observed categories (new_bug, known_issue, feature_request, etc).
 - Mention release context if changelog/version signals likely regressions.
 

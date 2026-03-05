@@ -3,16 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from alerts import Alert
-
-
-def _escape_table_cell(value: str) -> str:
-    return value.replace("|", "\\|")
-
-
-def _format_rating(value: float | None, fallback: float) -> str:
-    if value is None:
-        return f"{fallback:.2f}"
-    return f"{value:.2f}"
+from utils import escape_table_cell as _escape_table_cell, format_rating as _format_rating
 
 
 def _version_transition(current_version: dict[str, Any] | None, previous_version: dict[str, Any] | None) -> str:

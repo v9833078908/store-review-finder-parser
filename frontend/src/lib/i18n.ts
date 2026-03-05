@@ -32,6 +32,11 @@ export interface UiText {
     from: string
     to: string
     invalidRange: string
+    runHistory: string
+    selectRun: string
+    refreshRuns: string
+    noRuns: string
+    runNotFoundFallback: string
   }
   datePresets: {
     "24h": string
@@ -84,6 +89,9 @@ export interface UiText {
     withoutReply: string
     unansweredNegatives: string
     total: string
+    basedOnReviews: string
+    region: string
+    regionAll: string
   }
   timelineChart: {
     title: string
@@ -188,6 +196,11 @@ const EN_TEXT: UiText = {
     from: "From",
     to: "To",
     invalidRange: 'Set a valid range: "From" date must be earlier than "To".',
+    runHistory: "Run History",
+    selectRun: "Select run...",
+    refreshRuns: "Refresh",
+    noRuns: "No runs available",
+    runNotFoundFallback: "Run not found. Showing latest available run.",
   },
   datePresets: {
     "24h": "Last 24 hours",
@@ -222,7 +235,7 @@ const EN_TEXT: UiText = {
     alertsTitle: "Alerts",
     alertsSubtitle: "Signal feed with actionable context from anomaly detection",
     reportTitle: "Generating Unified Report",
-    reportSubtitle: "It may take up to 5-10 minutes to complete. You will be redirected to the dashboard when it completes.",
+    reportSubtitle: "It may take up to 5+ minutes to complete. You will be redirected to the dashboard when it completes.",
     reportMissingUrl: "Missing `url` query parameter.",
     reportStep: "Step",
     reportPipeline: "Pipeline",
@@ -236,10 +249,13 @@ const EN_TEXT: UiText = {
     clustersSinceRelease: "clusters since last release",
     spike: "spike",
     critical: "critical",
-    responseCoverage: "Response Coverage",
+    responseCoverage: "No Reply Rate",
     withoutReply: "without reply",
     unansweredNegatives: "unanswered negatives",
     total: "total",
+    basedOnReviews: "based on {count} reviews",
+    region: "Region",
+    regionAll: "All regions",
   },
   timelineChart: {
     title: "Timeline",
@@ -344,6 +360,11 @@ const RU_TEXT: UiText = {
     from: "С",
     to: "По",
     invalidRange: 'Укажите корректный диапазон: дата "С" должна быть раньше даты "По".',
+    runHistory: "История генераций",
+    selectRun: "Выберите генерацию...",
+    refreshRuns: "Обновить",
+    noRuns: "Генераций нет",
+    runNotFoundFallback: "Генерация не найдена. Показана последняя доступная.",
   },
   datePresets: {
     "24h": "Последние 24 часа",
@@ -392,10 +413,13 @@ const RU_TEXT: UiText = {
     clustersSinceRelease: "кластеров с последнего релиза",
     spike: "всплеск",
     critical: "критичный",
-    responseCoverage: "Покрытие Ответами",
+    responseCoverage: "Доля без ответа",
     withoutReply: "без ответа",
     unansweredNegatives: "негативов без ответа",
     total: "всего",
+    basedOnReviews: "на основе {count} отзывов",
+    region: "Регион",
+    regionAll: "Все регионы",
   },
   timelineChart: {
     title: "Таймлайн",
@@ -589,6 +613,43 @@ const LANGUAGE_NAMES: Record<SupportedLocale, Record<string, string>> = {
   },
 }
 
+const THEME_LABELS: Record<SupportedLocale, Record<string, string>> = {
+  en: {
+    crash: "crash",
+    performance: "performance",
+    ui: "ui",
+    balance: "balance",
+    monetization: "monetization",
+    multiplayer: "multiplayer",
+    progression_loss: "progression loss",
+    login_auth: "login/auth",
+    content: "content",
+    gameplay: "gameplay",
+    social: "social",
+    customization: "customization",
+    ui_improvement: "ui improvement",
+    other: "other",
+    general: "general",
+  },
+  ru: {
+    crash: "краши",
+    performance: "производительность",
+    ui: "интерфейс",
+    balance: "баланс",
+    monetization: "монетизация",
+    multiplayer: "мультиплеер",
+    progression_loss: "потеря прогресса",
+    login_auth: "логин / авторизация",
+    content: "контент",
+    gameplay: "геймплей",
+    social: "социальные функции",
+    customization: "кастомизация",
+    ui_improvement: "улучшение UI",
+    other: "другое",
+    general: "общее",
+  },
+}
+
 const UI_TEXT: Record<SupportedLocale, UiText> = {
   en: EN_TEXT,
   ru: RU_TEXT,
@@ -639,4 +700,10 @@ export function formatAlertSeverity(severity: AlertSeverity, locale: SupportedLo
 export function formatLanguageCode(langCode: string, locale: SupportedLocale): string {
   const normalized = langCode.toLowerCase()
   return LANGUAGE_NAMES[locale][normalized] || normalized.toUpperCase()
+}
+
+export function formatThemeLabel(theme: string, locale: SupportedLocale): string {
+  const normalized = (theme || "").trim().toLowerCase()
+  if (!normalized) return locale === "ru" ? "общее" : "general"
+  return THEME_LABELS[locale][normalized] || normalized.replace(/_/g, " ")
 }

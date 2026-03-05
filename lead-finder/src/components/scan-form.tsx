@@ -100,7 +100,7 @@ export function ScanForm({ onSubmit, isScanning }: ScanFormProps) {
             className={!isCountrySupported && country ? 'border-yellow-500' : ''}
           />
           <p className="text-xs text-muted-foreground">
-            Supported: us, gb, de, fr, es, it, jp, kr, cn, in, br, ca, au, mx, nl, se, no, dk, fi, pl
+            Supported: us, gb, de, fr, es, it, jp, kr, cn, in, br, ca, au, mx, nl, se, no, dk, fi, pl, ru
           </p>
           {!isCountrySupported && country && (
             <p className="text-xs text-yellow-600">

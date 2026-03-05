@@ -1,5 +1,6 @@
 "use client"
 
+import { useState } from "react"
 import { TrendingDown, AlertTriangle, MessageCircleOff } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -9,14 +10,68 @@ import { useDashboardPreferences } from "@/lib/dashboard-preferences"
 import { getUiText } from "@/lib/i18n"
 import type { DashboardKpiKey } from "@/lib/dashboard-config"
 
+const VISIBLE_COUNTRIES = 5
+
+function CountryBreakdown({
+  filteredReviewCount,
+  countriesFetched,
+  label,
+}: {
+  filteredReviewCount: number
+  countriesFetched: string[]
+  label: string
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const shown = expanded ? countriesFetched : countriesFetched.slice(0, VISIBLE_COUNTRIES)
+  const overflow = countriesFetched.length - VISIBLE_COUNTRIES
+
+  return (
+    <div className="mt-3 space-y-1.5 rounded-md bg-sky-50 px-2.5 py-1.5 dark:bg-sky-950/40">
+      <span className="text-xs text-sky-600 dark:text-sky-400">
+        {label.replace("{count}", String(filteredReviewCount))}
+      </span>
+      {countriesFetched.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1">
+          {shown.map((c) => (
+            <span
+              key={c}
+              className="inline-flex items-center rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold tracking-wide bg-sky-100 text-sky-700 dark:bg-sky-900/60 dark:text-sky-300"
+            >
+              {c}
+            </span>
+          ))}
+          {!expanded && overflow > 0 && (
+            <button
+              onClick={() => setExpanded(true)}
+              className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold bg-sky-200/70 text-sky-600 hover:bg-sky-200 dark:bg-sky-800/60 dark:text-sky-400 dark:hover:bg-sky-800 transition-colors cursor-pointer"
+            >
+              +{overflow}
+            </button>
+          )}
+          {expanded && (
+            <button
+              onClick={() => setExpanded(false)}
+              className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold bg-sky-200/70 text-sky-600 hover:bg-sky-200 dark:bg-sky-800/60 dark:text-sky-400 transition-colors cursor-pointer"
+            >
+              ↑
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 interface StatusCardsProps {
   reputation: ReputationStats
   issues: IssueStats
   response: ResponseStats
   kpiSet: DashboardKpiKey[]
+  filteredReviewCount: number
+  countriesFetched: string[]
 }
 
-export function StatusCards({ reputation, issues, response, kpiSet }: StatusCardsProps) {
+export function StatusCards({ reputation, issues, response, kpiSet, filteredReviewCount, countriesFetched }: StatusCardsProps) {
   const { locale } = useDashboardPreferences()
   const text = getUiText(locale)
   const enabled = new Set<DashboardKpiKey>(kpiSet)
@@ -136,6 +191,11 @@ export function StatusCards({ reputation, issues, response, kpiSet }: StatusCard
                 )}
               </div>
             )}
+            <CountryBreakdown
+              filteredReviewCount={filteredReviewCount}
+              countriesFetched={countriesFetched}
+              label={text.statusCards.basedOnReviews}
+            />
           </CardContent>
         </Card>
       )}

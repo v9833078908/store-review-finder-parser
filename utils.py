@@ -10,22 +10,20 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 from statistics import mean
-from typing import Any, TypeVar
+from typing import Any, Awaitable, Callable, TypeVar
 
-from anthropic import AsyncAnthropic
-from observability import (
-    current_trace_id,
-    observe,
-    update_current_generation,
-    update_current_span,
-)
+from observability import current_trace_id
 
-DEFAULT_MODEL = "claude-sonnet-4-5-20250929"
+DEFAULT_MODEL = "google/gemini-3-flash-preview"
 PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
-MAX_API_RETRIES = 3
 
 T = TypeVar("T")
+R = TypeVar("R")
 
+
+# ---------------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------------
 
 def _resolve_log_level(raw_level: str) -> int:
     normalized = (raw_level or "INFO").strip().upper()
@@ -63,6 +61,33 @@ def log_event(event: str, **fields: Any) -> None:
     APP_LOGGER.info(json.dumps(payload, ensure_ascii=False, default=str))
 
 
+# ---------------------------------------------------------------------------
+# String utilities
+# ---------------------------------------------------------------------------
+
+def safe_name(value: str, fallback: str = "item") -> str:
+    """Sanitise an arbitrary string for use as a filename or identifier."""
+    cleaned = re.sub(r"[^a-zA-Z0-9._-]+", "_", value.strip())
+    cleaned = cleaned.strip("_")
+    return cleaned or fallback
+
+
+def escape_table_cell(value: str) -> str:
+    """Escape pipe characters in a markdown table cell."""
+    return value.replace("|", "\\|")
+
+
+def format_rating(value: float | None, fallback: float) -> str:
+    """Format a rating float to two decimal places."""
+    if value is None:
+        return f"{fallback:.2f}"
+    return f"{value:.2f}"
+
+
+# ---------------------------------------------------------------------------
+# Prompts
+# ---------------------------------------------------------------------------
+
 def load_prompt(filename: str) -> str:
     path = PROMPTS_DIR / filename
     with path.open("r", encoding="utf-8") as handle:
@@ -80,6 +105,10 @@ def prompt_version(filename: str) -> str:
     payload = load_prompt(filename).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()[:12]
 
+
+# ---------------------------------------------------------------------------
+# Data helpers
+# ---------------------------------------------------------------------------
 
 def chunked(items: list[T], size: int) -> list[list[T]]:
     if size <= 0:
@@ -109,8 +138,11 @@ def extract_json_text(text: str) -> str:
     raise ValueError("No JSON payload found in model response.")
 
 
-def parse_date(value: str | None) -> datetime | None:
+def parse_date(value: Any) -> datetime | None:
+    """Parse a date string (or None/non-string) into a UTC-aware datetime."""
     if not value:
+        return None
+    if not isinstance(value, str):
         return None
     try:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
@@ -136,7 +168,7 @@ def review_stats(reviews: list[dict[str, Any]]) -> dict[str, Any]:
     ratings = [int(item.get("rating") or 0) for item in reviews if item.get("rating")]
     avg_rating = round(mean(ratings), 2) if ratings else 0.0
 
-    valid_dates = [parse_date(str(item.get("date") or "")) for item in reviews]
+    valid_dates = [parse_date(item.get("date")) for item in reviews]
     valid_dates = [value for value in valid_dates if value is not None]
     if valid_dates:
         period = f"{min(valid_dates).date().isoformat()} to {max(valid_dates).date().isoformat()}"
@@ -166,141 +198,48 @@ def build_category_counts(classified: list[dict[str, Any]]) -> dict[str, int]:
     return counts
 
 
-def get_client_and_model() -> tuple[AsyncAnthropic, str]:
-    api_key = os.getenv("ANTHROPIC_API_KEY")
-    if not api_key:
-        raise RuntimeError("ANTHROPIC_API_KEY is missing.")
-    model = os.getenv("ANTHROPIC_MODEL", DEFAULT_MODEL).strip() or DEFAULT_MODEL
-    log_event("llm_client_initialized", provider="anthropic", model=model)
-    return AsyncAnthropic(api_key=api_key), model
-
-
-@observe(name="llm_call", as_type="generation", capture_input=False, capture_output=False)
-async def call_model(
-    client: AsyncAnthropic,
-    model: str,
-    prompt: str,
-    max_tokens: int,
-    temperature: float = 0.2,
-    retries: int = MAX_API_RETRIES,
-    prompt_name: str = "unknown",
-) -> str:
-    started = time.perf_counter()
-    prompt_hash = hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:12]
-    log_event(
-        "llm_call_started",
-        provider="anthropic",
-        model=model,
-        prompt_name=prompt_name,
-        prompt_chars=len(prompt),
-        prompt_hash=prompt_hash,
-        max_tokens=max_tokens,
-        temperature=temperature,
-        tools_enabled=False,
-    )
-    update_current_generation(
-        name=f"llm:{prompt_name}",
-        model=model,
-        input={
-            "prompt_name": prompt_name,
-            "prompt_chars": len(prompt),
-            "prompt_hash": prompt_hash,
-        },
-        metadata={
-            "provider": "anthropic",
-            "max_tokens": max_tokens,
-            "temperature": temperature,
-        },
-        model_parameters={
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-        },
-    )
-    for attempt in range(retries):
-        try:
-            attempt_started = time.perf_counter()
-            response = await client.messages.create(
-                model=model,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            chunks = [block.text for block in response.content if getattr(block, "type", "") == "text"]
-            text = "".join(chunks).strip()
-            log_event(
-                "llm_call_succeeded",
-                provider="anthropic",
-                model=model,
-                prompt_name=prompt_name,
-                attempt=attempt + 1,
-                duration_ms=round((time.perf_counter() - attempt_started) * 1000),
-                total_duration_ms=round((time.perf_counter() - started) * 1000),
-                output_chars=len(text),
-                stop_reason=getattr(response, "stop_reason", None),
-            )
-            usage = getattr(response, "usage", None)
-            usage_details: dict[str, int] = {}
-            if usage is not None:
-                for key in (
-                    "input_tokens",
-                    "output_tokens",
-                    "cache_creation_input_tokens",
-                    "cache_read_input_tokens",
-                ):
-                    value = getattr(usage, key, None)
-                    if isinstance(value, int):
-                        usage_details[key] = value
-
-            update_current_generation(
-                output={
-                    "output_chars": len(text),
-                    "stop_reason": getattr(response, "stop_reason", None),
-                    "attempt": attempt + 1,
-                },
-                usage_details=usage_details or None,
-                metadata={
-                    "provider": "anthropic",
-                    "prompt_name": prompt_name,
-                },
-                status_message="succeeded",
-            )
-            return text
-        except Exception as exc:
-            log_event(
-                "llm_call_failed_attempt",
-                provider="anthropic",
-                model=model,
-                prompt_name=prompt_name,
-                attempt=attempt + 1,
-                duration_ms=round((time.perf_counter() - attempt_started) * 1000),
-                error=str(exc),
-            )
-            update_current_span(
-                metadata={
-                    "provider": "anthropic",
-                    "prompt_name": prompt_name,
-                    "failed_attempt": attempt + 1,
-                    "error": str(exc),
-                }
-            )
-            if attempt == retries - 1:
-                log_event(
-                    "llm_call_failed",
-                    provider="anthropic",
-                    model=model,
-                    prompt_name=prompt_name,
-                    total_duration_ms=round((time.perf_counter() - started) * 1000),
-                    retries=retries,
-                )
-                update_current_generation(
-                    output={"error": str(exc)},
-                    status_message="failed",
-                    metadata={"provider": "anthropic", "prompt_name": prompt_name},
-                )
-                raise
-            await asyncio.sleep(2**attempt)
-    return ""
-
-
 def to_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, indent=2)
+
+
+# ---------------------------------------------------------------------------
+# Generic batch processor
+# ---------------------------------------------------------------------------
+
+ProgressCallback = Callable[[int, int], Awaitable[None] | None]
+
+
+async def run_batched(
+    items: list[T],
+    batch_size: int,
+    processor: Callable[[list[T]], Awaitable[list[R]]],
+    semaphore: asyncio.Semaphore,
+    progress_callback: ProgressCallback | None = None,
+) -> list[R]:
+    """Process *items* in batches of *batch_size* with semaphore-guarded concurrency.
+
+    *processor* receives one batch (list[T]) and must return list[R].
+    Results are collected in completion order (not input order).
+    """
+    if not items:
+        return []
+
+    batches = chunked(items, batch_size)
+    total = len(batches)
+    done = 0
+
+    async def _guarded(batch: list[T]) -> list[R]:
+        async with semaphore:
+            return await processor(batch)
+
+    results: list[R] = []
+    tasks = [asyncio.create_task(_guarded(batch)) for batch in batches]
+    for task in asyncio.as_completed(tasks):
+        results.extend(await task)
+        done += 1
+        if progress_callback:
+            maybe_awaitable = progress_callback(done, total)
+            if asyncio.iscoroutine(maybe_awaitable):
+                await maybe_awaitable
+
+    return results

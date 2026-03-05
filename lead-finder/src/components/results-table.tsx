@@ -124,6 +124,9 @@ export function ResultsTable({ results, scanParams }: ResultsTableProps) {
             <TableHead className="text-right">
               <SortButton field="total_reviews_count" label="Reviews" onSort={handleSort} />
             </TableHead>
+            <TableHead className="text-right">
+              <SortButton field="min_installs" label="Downloads" onSort={handleSort} />
+            </TableHead>
             <TableHead className="text-right">Actions</TableHead>
           </TableRow>
         </TableHeader>
@@ -161,6 +164,9 @@ export function ResultsTable({ results, scanParams }: ResultsTableProps) {
               </TableCell>
               <TableCell className="text-right">
                 {result.total_reviews_count.toLocaleString()}
+              </TableCell>
+              <TableCell className="text-right">
+                {result.installs ?? '—'}
               </TableCell>
               <TableCell className="text-right">
                 <Button variant="outline" size="sm" asChild>

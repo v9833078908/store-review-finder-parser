@@ -30,6 +30,8 @@ export interface AppResult {
   score: number;
   total_reviews_count: number;
   sample_size: number;
+  installs: string | null;
+  min_installs: number;
 }
 
 // SSE event types

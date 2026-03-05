@@ -15,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sse_starlette.sse import EventSourceResponse
 
 from dashboard_config import load_dashboard_config, save_dashboard_config
+from localization import localize_run_payload
 from lead_scan import (
     ResolveInputError,
     ScanParams,
@@ -27,8 +28,8 @@ from pipeline import run_unified_pipeline
 from observability import init_observability, observe, shutdown_observability, update_current_trace
 from report_builder import build_unified_report
 from scraper import REGION_LANGUAGE_SWEEP, fetch_reviews
-from storage import load_run_artifact, save_run_artifact
-from utils import log_event
+from storage import list_run_artifacts, load_run_artifact, save_run_artifact
+from utils import log_event, safe_name
 from version_tracker import get_current_version, get_previous_version, update_version_history
 
 REPORTS_DIR = Path(__file__).resolve().parent / "reports"
@@ -44,29 +45,29 @@ PERIOD_DAYS = {
 REGION_CODE_PATTERN = re.compile(r"^[a-z]{2}$")
 ALL_REGION_CODE = "all"
 ALL_REGION_SWEEP = [
-    "us",
-    "ru",
-    "gb",
-    "de",
-    "fr",
-    "es",
-    "it",
-    "jp",
-    "kr",
-    "cn",
-    "in",
-    "br",
-    "ca",
-    "au",
-    "mx",
-    "nl",
-    "se",
-    "no",
-    "dk",
-    "fi",
-    "pl",
+    "us",  # USA — largest English market
+    "jp",  # Japan — top mobile game market
+    "kr",  # South Korea — top mobile game market
+    "de",  # Germany — largest EU market
+    "ru",  # Russia
+    "gb",  # United Kingdom
+    "in",  # India — fast-growing market
+    "br",  # Brazil — largest LatAm market
+    "fr",  # France
+    "es",  # Spain
+    "cn",  # China
+    "it",  # Italy
+    "ca",  # Canada
+    "au",  # Australia
+    "mx",  # Mexico
+    "pl",  # Poland
+    "nl",  # Netherlands
+    "tr",  # Turkey — fast-growing mobile market
+    "id",  # Indonesia — large mobile gaming market
+    "se",  # Sweden — home of many game studios
 ]
 ALL_REGION_FETCH_LIMIT_PER_COUNTRY = 500
+PARALLEL_FETCH_CONCURRENCY = 5
 
 app = FastAPI(title="Review Dashboard API", version="0.1.0")
 
@@ -130,14 +131,6 @@ async def request_logging_middleware(request: Request, call_next):
         duration_ms=round((time.perf_counter() - started) * 1000),
     )
     return response
-
-
-def _safe_report_name(value: str) -> str:
-    import re
-
-    cleaned = re.sub(r"[^a-zA-Z0-9._-]+", "_", value.strip())
-    cleaned = cleaned.strip("_")
-    return cleaned or "report"
 
 
 def _parse_langs(langs_raw: str) -> list[str]:
@@ -246,9 +239,7 @@ def _merge_reviews_unique(reviews: list[dict[str, Any]]) -> list[dict[str, Any]]
     return merged
 
 
-@observe(name="generate_dashboard", capture_input=False, capture_output=False)
-async def _generate_dashboard(
-    *,
+def _resolve_dashboard_params(
     url: str,
     max_reviews: int,
     langs_raw: str | None,
@@ -256,29 +247,10 @@ async def _generate_dashboard(
     period: str | None,
     from_date: str | None,
     to_date: str | None,
-    force_refresh: bool,
-    cache_ttl_hours: int,
-    source: str,
-    selected_app_id: str | None,
-    progress_callback: Callable[[dict[str, Any]], Awaitable[None] | None] | None = None,
-) -> dict[str, Any]:
-    started = time.perf_counter()
+) -> tuple[str, str | None, datetime | None, datetime | None, list[str], int, list[str]]:
+    """Normalise request parameters; return resolved fetch config."""
     normalized_country = _normalize_region(country)
     window_mode, window_from, window_to = _resolve_window(period, from_date, to_date)
-    update_current_trace(
-        name="dashboard_generation",
-        metadata={
-            "source": source,
-            "selected_app_id": selected_app_id,
-            "country": normalized_country,
-            "period": period or "legacy",
-            "window_mode": window_mode or "legacy",
-            "window_from": window_from.isoformat() if window_from else None,
-            "window_to": window_to.isoformat() if window_to else None,
-            "force_refresh": force_refresh,
-        },
-        tags=["dashboard", "report-generation"],
-    )
 
     if window_mode:
         fetch_langs = REGION_LANGUAGE_SWEEP
@@ -288,92 +260,88 @@ async def _generate_dashboard(
         fetch_max_reviews = max_reviews
 
     fetch_countries = _resolve_fetch_countries(normalized_country)
-    log_event(
-        "dashboard_generation_started",
-        source=source,
-        app_id=selected_app_id,
-        country=normalized_country,
-        countries_fetched=fetch_countries,
-        period=period or "legacy",
-        window_mode=window_mode or "legacy",
-        window_from=window_from.isoformat() if window_from else None,
-        window_to=window_to.isoformat() if window_to else None,
-        fetch_max_reviews=fetch_max_reviews,
-        sample_limit=WINDOW_SAMPLE_LIMIT if window_mode else max_reviews,
-    )
-    package_name, resolved_title = parse_google_play_url(
-        url,
-        country=fetch_countries[0],
-        lang=fetch_langs[0],
-    )
+    return normalized_country, window_mode, window_from, window_to, fetch_langs, fetch_max_reviews, fetch_countries
 
-    async def _emit(event: dict[str, Any]) -> None:
-        if not progress_callback:
-            return
-        maybe_awaitable = progress_callback(event)
-        if asyncio.iscoroutine(maybe_awaitable):
-            await maybe_awaitable
 
-    await _emit(
-        {
-            "type": "status",
-            "step": "resolved",
-            "package": package_name,
-            "title": resolved_title,
-        }
-    )
-    await _emit({"type": "status", "step": "fetching"})
+async def _fetch_all_reviews(
+    package_name: str,
+    fetch_countries: list[str],
+    fetch_langs: list[str],
+    fetch_max_reviews: int,
+    normalized_country: str,
+    window_mode: str | None,
+    window_from: datetime | None,
+    window_to: datetime | None,
+    force_refresh: bool,
+    cache_ttl_hours: int,
+    _emit: Callable[[dict[str, Any]], Awaitable[None] | None],
+) -> tuple[list[dict[str, Any]], dict[str, Any], str | None, str | None]:
+    """Fetch reviews from all countries, merge, apply window filter.
 
-    fetched_payloads: list[dict[str, Any]] = []
+    Returns (reviews, app_metadata, app_name_from_payload, fetched_at).
+    """
     combined_reviews: list[dict[str, Any]] = []
     app_metadata: dict[str, Any] = {}
-    app_name_from_payload = resolved_title
+    app_name_from_payload: str | None = None
 
-    for index, fetch_country in enumerate(fetch_countries, start=1):
-        if len(fetch_countries) > 1:
-            await _emit(
-                {
-                    "type": "status",
-                    "step": f"fetching:{fetch_country} ({index}/{len(fetch_countries)})",
-                }
+    if len(fetch_countries) > 1:
+        await _emit(
+            {
+                "type": "status",
+                "step": f"fetching:{len(fetch_countries)} countries in parallel",
+            }
+        )
+
+    per_country_fetch_limit = fetch_max_reviews
+    if normalized_country == ALL_REGION_CODE:
+        if window_mode:
+            per_country_fetch_limit = min(fetch_max_reviews, ALL_REGION_FETCH_LIMIT_PER_COUNTRY)
+        else:
+            per_country_fetch_limit = max(
+                1,
+                (fetch_max_reviews + len(fetch_countries) - 1) // len(fetch_countries),
             )
 
-        per_country_fetch_limit = fetch_max_reviews
-        if normalized_country == ALL_REGION_CODE:
-            if window_mode:
-                per_country_fetch_limit = min(fetch_max_reviews, ALL_REGION_FETCH_LIMIT_PER_COUNTRY)
-            else:
-                per_country_fetch_limit = max(
-                    1,
-                    (fetch_max_reviews + len(fetch_countries) - 1) // len(fetch_countries),
-                )
+    sem = asyncio.Semaphore(PARALLEL_FETCH_CONCURRENCY)
 
-        country_fetch_started = time.perf_counter()
-        payload = await asyncio.to_thread(
-            fetch_reviews,
-            package_name=package_name,
-            max_reviews=per_country_fetch_limit,
-            langs=fetch_langs,
-            country=fetch_country,
-            force_refresh=force_refresh,
-            cache_ttl=timedelta(hours=cache_ttl_hours),
-        )
-        fetched_payloads.append(payload)
-        country_reviews = payload.get("reviews") or []
+    async def _fetch_one_country(fetch_country: str) -> dict[str, Any]:
+        async with sem:
+            started = time.perf_counter()
+            payload = await asyncio.to_thread(
+                fetch_reviews,
+                package_name=package_name,
+                max_reviews=per_country_fetch_limit,
+                langs=fetch_langs,
+                country=fetch_country,
+                force_refresh=force_refresh,
+                cache_ttl=timedelta(hours=cache_ttl_hours),
+            )
+            log_event(
+                "reviews_fetch_completed",
+                package_name=package_name,
+                country=fetch_country,
+                reviews=len(payload.get("reviews") or []),
+                limit=per_country_fetch_limit,
+                duration_ms=round((time.perf_counter() - started) * 1000),
+                from_cache=bool(payload.get("cache_hit")),
+            )
+            return payload
+
+    results = await asyncio.gather(
+        *[_fetch_one_country(c) for c in fetch_countries],
+        return_exceptions=True,
+    )
+
+    for result in results:
+        if isinstance(result, Exception):
+            log_event("reviews_fetch_country_error", error=str(result))
+            continue
+        country_reviews = result.get("reviews") or []
         combined_reviews.extend(country_reviews)
-        log_event(
-            "reviews_fetch_completed",
-            package_name=package_name,
-            country=fetch_country,
-            reviews=len(country_reviews),
-            limit=per_country_fetch_limit,
-            duration_ms=round((time.perf_counter() - country_fetch_started) * 1000),
-            from_cache=bool(payload.get("cache_hit")),
-        )
         if not app_metadata:
-            app_metadata = payload.get("app_metadata") or {}
+            app_metadata = result.get("app_metadata") or {}
         if not app_name_from_payload:
-            app_name_from_payload = payload.get("app_name")
+            app_name_from_payload = result.get("app_name")
 
     raw_reviews = _merge_reviews_unique(combined_reviews)
     log_event(
@@ -383,6 +351,7 @@ async def _generate_dashboard(
         after_merge=len(raw_reviews),
         countries_fetched=fetch_countries,
     )
+
     if not window_mode and len(raw_reviews) > fetch_max_reviews:
         raw_reviews = raw_reviews[:fetch_max_reviews]
     reviews = list(raw_reviews)
@@ -411,24 +380,33 @@ async def _generate_dashboard(
                 f"No reviews found for {target_scope} in the selected window ({window_mode})."
             )
 
-    fetched_at = next(
+    fetched_at: str | None = next(
         (
             item.get("fetched_at")
-            for item in fetched_payloads
-            if isinstance(item.get("fetched_at"), str) and item.get("fetched_at")
+            for item in results
+            if not isinstance(item, Exception)
+            and isinstance(item.get("fetched_at"), str)
+            and item.get("fetched_at")
         ),
         None,
     )
-    app_name = str(app_name_from_payload or package_name)
+    return reviews, app_metadata, app_name_from_payload, fetched_at
 
-    await _emit({"type": "status", "step": "fetched", "count": len(reviews)})
-    log_event(
-        "reviews_ready_for_pipeline",
-        package_name=package_name,
-        selected_reviews=len(reviews),
-        window_mode=window_mode or "legacy",
-    )
 
+async def _run_pipeline_and_build_report(
+    reviews: list[dict[str, Any]],
+    app_name: str,
+    app_metadata: dict[str, Any],
+    package_name: str,
+    window_mode: str | None,
+    window_from: datetime | None,
+    window_to: datetime | None,
+    progress_callback: Callable[[dict[str, Any]], Awaitable[None] | None] | None,
+) -> tuple[dict[str, Any], str, "Path", dict[str, Any] | None, dict[str, Any] | None]:
+    """Run unified pipeline + build markdown.
+
+    Returns (pipeline_result, markdown, report_path, current_version, previous_version).
+    """
     update_version_history(package_name, app_metadata)
     current_version = get_current_version(package_name)
     previous_version = get_previous_version(package_name)
@@ -466,9 +444,36 @@ async def _generate_dashboard(
 
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     date_label = datetime.now().strftime("%Y-%m-%d")
-    report_path = REPORTS_DIR / f"{_safe_report_name(app_name)}_dashboard_{date_label}.md"
+    report_path = REPORTS_DIR / f"{safe_name(app_name, fallback='report')}_dashboard_{date_label}.md"
     report_path.write_text(markdown, encoding="utf-8")
+    return pipeline_result, markdown, report_path, current_version, previous_version
 
+
+def _save_and_log_result(
+    *,
+    pipeline_result: dict[str, Any],
+    markdown: str,
+    report_path: "Path",
+    package_name: str,
+    app_name: str,
+    fetch_langs: list[str],
+    fetch_countries: list[str],
+    normalized_country: str,
+    app_metadata: dict[str, Any],
+    fetched_at: str | None,
+    current_version: dict[str, Any] | None,
+    previous_version: dict[str, Any] | None,
+    window_mode: str | None,
+    window_from: datetime | None,
+    window_to: datetime | None,
+    max_reviews: int,
+    reviews: list[dict[str, Any]],
+    source: str,
+    selected_app_id: str | None,
+    url: str,
+    started: float,
+) -> dict[str, Any]:
+    """Save artifact, emit completion logs, and return the SSE report payload."""
     artifact_path = save_run_artifact(
         package_name=package_name,
         app_name=app_name,
@@ -492,6 +497,7 @@ async def _generate_dashboard(
             "prompt_versions": pipeline_result["prompt_versions"],
             "report_path": str(report_path),
             "source": "api",
+            "feedback_source": "google_play",
             "dashboard_config_snapshot": load_dashboard_config(package_name, "producer"),
             "launch_context": {
                 "source": source,
@@ -506,6 +512,7 @@ async def _generate_dashboard(
             "reviews": reviews,
         },
     )
+    duration_ms = round((time.perf_counter() - started) * 1000)
     log_event(
         "dashboard_generation_completed",
         run_id=pipeline_result.get("run_id"),
@@ -514,7 +521,7 @@ async def _generate_dashboard(
         report_path=str(report_path),
         artifact_path=str(artifact_path),
         reviews_selected=len(reviews),
-        duration_ms=round((time.perf_counter() - started) * 1000),
+        duration_ms=duration_ms,
     )
     update_current_trace(
         session_id=pipeline_result.get("run_id"),
@@ -529,7 +536,7 @@ async def _generate_dashboard(
             "window_to": window_to.isoformat() if window_to else None,
             "sample_limit": WINDOW_SAMPLE_LIMIT if window_mode else max_reviews,
             "reviews_selected": len(reviews),
-            "duration_ms": round((time.perf_counter() - started) * 1000),
+            "duration_ms": duration_ms,
         },
         tags=[
             f"source:{source}",
@@ -537,7 +544,6 @@ async def _generate_dashboard(
             f"window:{window_mode or 'legacy'}",
         ],
     )
-
     return {
         "run_id": pipeline_result["run_id"],
         "package_name": package_name,
@@ -555,6 +561,131 @@ async def _generate_dashboard(
         "sample_limit": WINDOW_SAMPLE_LIMIT if window_mode else max_reviews,
         "reviews_selected": len(reviews),
     }
+
+
+@observe(name="generate_dashboard", capture_input=False, capture_output=False)
+async def _generate_dashboard(
+    *,
+    url: str,
+    max_reviews: int,
+    langs_raw: str | None,
+    country: str,
+    period: str | None,
+    from_date: str | None,
+    to_date: str | None,
+    force_refresh: bool,
+    cache_ttl_hours: int,
+    source: str,
+    selected_app_id: str | None,
+    progress_callback: Callable[[dict[str, Any]], Awaitable[None] | None] | None = None,
+) -> dict[str, Any]:
+    started = time.perf_counter()
+    normalized_country, window_mode, window_from, window_to, fetch_langs, fetch_max_reviews, fetch_countries = (
+        _resolve_dashboard_params(url, max_reviews, langs_raw, country, period, from_date, to_date)
+    )
+    update_current_trace(
+        name="dashboard_generation",
+        metadata={
+            "source": source,
+            "selected_app_id": selected_app_id,
+            "country": normalized_country,
+            "period": period or "legacy",
+            "window_mode": window_mode or "legacy",
+            "window_from": window_from.isoformat() if window_from else None,
+            "window_to": window_to.isoformat() if window_to else None,
+            "force_refresh": force_refresh,
+        },
+        tags=["dashboard", "report-generation"],
+    )
+    log_event(
+        "dashboard_generation_started",
+        source=source,
+        app_id=selected_app_id,
+        country=normalized_country,
+        countries_fetched=fetch_countries,
+        period=period or "legacy",
+        window_mode=window_mode or "legacy",
+        window_from=window_from.isoformat() if window_from else None,
+        window_to=window_to.isoformat() if window_to else None,
+        fetch_max_reviews=fetch_max_reviews,
+        sample_limit=WINDOW_SAMPLE_LIMIT if window_mode else max_reviews,
+    )
+
+    package_name, resolved_title = parse_google_play_url(
+        url,
+        country=fetch_countries[0],
+        lang=fetch_langs[0],
+    )
+
+    async def _emit(event: dict[str, Any]) -> None:
+        if not progress_callback:
+            return
+        maybe_awaitable = progress_callback(event)
+        if asyncio.iscoroutine(maybe_awaitable):
+            await maybe_awaitable
+
+    await _emit({"type": "status", "step": "resolved", "package": package_name, "title": resolved_title})
+    await _emit({"type": "status", "step": "fetching"})
+
+    reviews, app_metadata, app_name_from_payload, fetched_at = await _fetch_all_reviews(
+        package_name=package_name,
+        fetch_countries=fetch_countries,
+        fetch_langs=fetch_langs,
+        fetch_max_reviews=fetch_max_reviews,
+        normalized_country=normalized_country,
+        window_mode=window_mode,
+        window_from=window_from,
+        window_to=window_to,
+        force_refresh=force_refresh,
+        cache_ttl_hours=cache_ttl_hours,
+        _emit=_emit,
+    )
+    app_name = str(app_name_from_payload or package_name)
+
+    await _emit({"type": "status", "step": "fetched", "count": len(reviews)})
+    log_event(
+        "reviews_ready_for_pipeline",
+        package_name=package_name,
+        selected_reviews=len(reviews),
+        window_mode=window_mode or "legacy",
+    )
+
+    pipeline_result, markdown, report_path, current_version, previous_version = (
+        await _run_pipeline_and_build_report(
+            reviews=reviews,
+            app_name=app_name,
+            app_metadata=app_metadata,
+            package_name=package_name,
+            window_mode=window_mode,
+            window_from=window_from,
+            window_to=window_to,
+            progress_callback=progress_callback,
+        )
+    )
+
+    return _save_and_log_result(
+        pipeline_result=pipeline_result,
+        markdown=markdown,
+        report_path=report_path,
+        package_name=package_name,
+        app_name=app_name,
+        fetch_langs=fetch_langs,
+        fetch_countries=fetch_countries,
+        normalized_country=normalized_country,
+        app_metadata=app_metadata,
+        fetched_at=fetched_at,
+        current_version=current_version,
+        previous_version=previous_version,
+        window_mode=window_mode,
+        window_from=window_from,
+        window_to=window_to,
+        max_reviews=max_reviews,
+        reviews=reviews,
+        source=source,
+        selected_app_id=selected_app_id,
+        url=url,
+        started=started,
+    )
 
 
 @app.get("/health")
@@ -778,11 +909,35 @@ async def resolve_google_play(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+@app.get("/api/runs")
+async def list_runs(
+    package_name: str | None = Query(None),
+    limit: int = Query(10, ge=1, le=50),
+    unique_apps: bool = Query(False),
+) -> dict[str, Any]:
+    items = list_run_artifacts(package_name=package_name, limit=limit, unique_apps=unique_apps)
+    return {"items": items, "count": len(items)}
+
+
 @app.get("/api/runs/{run_id}")
-async def get_run(run_id: str) -> dict[str, Any]:
+async def get_run(
+    run_id: str,
+    lang: str = Query("en"),
+) -> dict[str, Any]:
     payload = load_run_artifact(run_id)
     if payload is None:
         raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+    locale = (lang or "en").strip().lower()
+    if locale.startswith("ru"):
+        try:
+            payload = await localize_run_payload(payload, "ru")
+        except Exception as exc:
+            log_event(
+                "run_localization_failed",
+                run_id=run_id,
+                locale="ru",
+                error=str(exc),
+            )
     return payload
 
 

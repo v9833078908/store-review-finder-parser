@@ -1,3 +1,23 @@
+/**
+ * runtime-mapper.ts — Maps raw RunArtifact API payloads to DashboardData.
+ *
+ * CATEGORY MAPPING CONTRACT
+ * ─────────────────────────
+ * The Python backend classifies reviews into 5 categories that are mapped
+ * to frontend ReviewCategory values here:
+ *
+ *   API value          Frontend ReviewCategory   Notes
+ *   ─────────────────  ───────────────────────   ─────────────────────────────
+ *   "new_bug"          "bug"                      New bug, not previously known
+ *   "known_issue"      "complaint"                Known problem / general complaint
+ *   "feature_request"  "feature"                  Feature request
+ *   "praise"           "praise"                   Positive review
+ *   "noise"            "noise"                    Irrelevant / uninformative
+ *   (anything else)    "complaint"                Fallback for unknown values
+ *
+ * See categoryFromApi() for the implementation.
+ * Source: classifier.py valid_categories + pipeline.py category_counts.
+ */
 import type {
   ApiAlert,
   ApiClassification,
@@ -8,6 +28,7 @@ import type {
 } from "@/lib/api-types"
 import type { DashboardData } from "@/lib/dashboard-types"
 import { buildEmptyReportLayers, type ReportLayer, type ReportLayers } from "@/lib/dashboard-types"
+import type { SupportedLocale } from "@/lib/i18n"
 import type {
   ActionItem,
   Alert,
@@ -22,6 +43,23 @@ import type {
 } from "@/lib/types"
 
 const CRITICAL_SUBCATEGORIES = new Set(["crash", "progression_loss", "login_auth"])
+const RU_SUBCATEGORY_LABELS: Record<string, string> = {
+  crash: "Краши",
+  performance: "Проблемы производительности",
+  ui: "Проблемы интерфейса",
+  balance: "Баланс и прогрессия",
+  monetization: "Монетизация",
+  multiplayer: "Мультиплеер и соединение",
+  progression_loss: "Потеря прогресса",
+  login_auth: "Логин и авторизация",
+  content: "Контент",
+  gameplay: "Геймплей",
+  social: "Социальные функции",
+  customization: "Кастомизация",
+  ui_improvement: "Улучшение интерфейса",
+  other: "Прочее",
+  general: "Общее",
+}
 
 function slugify(input: string): string {
   return input
@@ -39,6 +77,14 @@ function titleCase(input: string): string {
     .join(" ")
 }
 
+function subcategoryLabel(subcategory: string, locale: SupportedLocale): string {
+  const normalized = (subcategory || "general").trim().toLowerCase() || "general"
+  if (locale === "ru") {
+    return RU_SUBCATEGORY_LABELS[normalized] || normalized.replace(/[_-]+/g, " ")
+  }
+  return titleCase(normalized)
+}
+
 function toDate(value: string | undefined | null): Date | null {
   if (!value) return null
   const parsed = new Date(value)
@@ -50,6 +96,17 @@ function isoDateOnly(value: Date): string {
   return value.toISOString().slice(0, 10)
 }
 
+/**
+ * Map a backend classification category string to a frontend ReviewCategory.
+ *
+ * Full mapping table (see module header for details):
+ *   "new_bug"          → "bug"
+ *   "known_issue"      → "complaint"
+ *   "feature_request"  → "feature"
+ *   "praise"           → "praise"
+ *   "noise"            → "noise"
+ *   (unknown / empty)  → "complaint"  (fallback)
+ */
 function categoryFromApi(value: string | undefined): ReviewCategory {
   switch ((value || "").toLowerCase()) {
     case "new_bug":
@@ -118,19 +175,34 @@ function topValues(values: string[], limit = 3): string[] {
     .map(([value]) => value)
 }
 
-function recommendedAction(subcategory: string): string {
+function recommendedAction(subcategory: string, locale: SupportedLocale): string {
   const sub = subcategory.toLowerCase()
   if (CRITICAL_SUBCATEGORIES.has(sub)) {
+    if (locale === "ru") {
+      return "Рекомендуется срочный хотфикс: воспроизвести, исправить и мониторить crash/login метрики 72 часа."
+    }
     return "Immediate hotfix recommended. Reproduce, patch, and monitor crash/login rates for 72h."
   }
   if (sub.includes("ads") || sub.includes("monet")) {
+    if (locale === "ru") {
+      return "Проверить давление монетизации и частоту рекламы. Оценить влияние на доверие и удержание игроков."
+    }
     return "Audit monetization pressure and ad frequency. Validate player trust and retention impact."
   }
   if (sub.includes("match") || sub.includes("balance")) {
+    if (locale === "ru") {
+      return "Перепроверить матчмейкинг и кривую прогрессии. Валидировать ощущение справедливости по сегментам игроков."
+    }
     return "Review matchmaking and progression curve. Validate fairness across player tiers."
   }
   if (sub.includes("performance") || sub.includes("server") || sub.includes("connection")) {
+    if (locale === "ru") {
+      return "Профилировать регрессии производительности и стабильности по версиям/устройствам, с приоритетом надёжности."
+    }
     return "Profile performance and stability regressions by version/device. Prioritize reliability fixes."
+  }
+  if (locale === "ru") {
+    return "Исследовать корневую причину, приоритизировать по влиянию и отслеживать тренд после исправлений."
   }
   return "Investigate root cause, prioritize by impact, and track post-fix review trend."
 }
@@ -147,6 +219,8 @@ function buildReviews(artifact: RunArtifact): Review[] {
     const classification = classifications.get(String(item.review_id || ""))
     const category = categoryFromApi(classification?.category)
     const subcategory = String(classification?.subcategory || "general").trim().toLowerCase() || "general"
+    const replyText = typeof item.reply_text === "string" ? item.reply_text.trim() : ""
+    const hasReply = typeof item.has_reply === "boolean" ? item.has_reply : replyText.length > 0
     return {
       id: String(item.review_id || `review-${index}`),
       productId: slugify(artifact.package_name || artifact.app_name || "app"),
@@ -161,13 +235,16 @@ function buildReviews(artifact: RunArtifact): Review[] {
       sentiment: sentimentFromCategory(category),
       themes: [subcategory],
       severity: severityFromClassification(category, subcategory),
-      hasReply: false,
+      hasReply,
       createdAt: String(item.date || artifact.saved_at || new Date().toISOString()),
     }
   })
 }
 
-function buildClusters(reviews: Review[]): { clusters: Cluster[]; clusterBySubcategory: Map<string, string> } {
+function buildClusters(
+  reviews: Review[],
+  locale: SupportedLocale,
+): { clusters: Cluster[]; clusterBySubcategory: Map<string, string> } {
   const groups = new Map<string, Review[]>()
   for (const review of reviews) {
     if (review.category !== "bug" && review.category !== "complaint") continue
@@ -218,8 +295,11 @@ function buildClusters(reviews: Review[]): { clusters: Cluster[]; clusterBySubca
 
     clusters.push({
       id,
-      title: titleCase(subcategory),
-      summary: `${items.length} reports grouped under "${subcategory}".`,
+      title: subcategoryLabel(subcategory, locale),
+      summary:
+        locale === "ru"
+          ? `${items.length} отзывов объединены в кластер «${subcategoryLabel(subcategory, locale)}».`
+          : `${items.length} reports grouped under "${subcategory}".`,
       severity: Math.round(avg(items.map((review) => review.severity))) as Severity,
       volume24h,
       volume7d,
@@ -232,7 +312,7 @@ function buildClusters(reviews: Review[]): { clusters: Cluster[]; clusterBySubca
       lastSeen: lastSeen.toISOString(),
       status: volume24h > 0 ? "active" : "monitoring",
       reviewIds: items.map((review) => review.id),
-      recommendedAction: recommendedAction(subcategory),
+      recommendedAction: recommendedAction(subcategory, locale),
     })
   }
 
@@ -247,6 +327,7 @@ function buildClusters(reviews: Review[]): { clusters: Cluster[]; clusterBySubca
 function buildAlerts(
   artifact: RunArtifact,
   clusterBySubcategory: Map<string, string>,
+  locale: SupportedLocale,
 ): Alert[] {
   const fallbackDate = artifact.saved_at || artifact.fetched_at || new Date().toISOString()
   const alerts = (artifact.alerts || []).map((alert, index) => {
@@ -256,13 +337,21 @@ function buildAlerts(
     const severity = alertSeverityFromApi(alert)
     const clusterId = clusterBySubcategory.get(subcategory)
     const title =
-      alert.type === "spike"
-        ? `${titleCase(subcategory)} spike detected`
-        : `${titleCase(subcategory)} issue detected`
+      locale === "ru"
+        ? alert.type === "spike"
+          ? `Всплеск: ${subcategoryLabel(subcategory, locale)}`
+          : `Сигнал: ${subcategoryLabel(subcategory, locale)}`
+        : alert.type === "spike"
+          ? `${titleCase(subcategory)} spike detected`
+          : `${titleCase(subcategory)} issue detected`
     const description =
-      alert.type === "spike"
-        ? `${alert.count} reports in current window vs baseline ${Number(alert.baseline || 0).toFixed(2)}.`
-        : `${alert.count} reports classified as ${alert.type} in "${subcategory}".`
+      locale === "ru"
+        ? alert.type === "spike"
+          ? `${alert.count} упоминаний в текущем окне при базовом уровне ${Number(alert.baseline || 0).toFixed(2)}.`
+          : `${alert.count} упоминаний в категории ${alert.type} для темы «${subcategoryLabel(subcategory, locale)}».`
+        : alert.type === "spike"
+          ? `${alert.count} reports in current window vs baseline ${Number(alert.baseline || 0).toFixed(2)}.`
+          : `${alert.count} reports classified as ${alert.type} in "${subcategory}".`
 
     return {
       id,
@@ -462,7 +551,23 @@ function enrichActionsWithClusters(actions: ActionItem[], clusters: Cluster[]): 
   })
 }
 
-function buildActionItems(alerts: Alert[], clusters: Cluster[], markdown?: string): ActionItem[] {
+function buildActionItems(
+  alerts: Alert[],
+  clusters: Cluster[],
+  locale: SupportedLocale,
+  markdown?: string,
+): ActionItem[] {
+  if (locale === "ru" && clusters.length) {
+    return clusters.slice(0, 5).map((cluster, index) => ({
+      id: `act-${index + 1}`,
+      type: "investigation" as const,
+      title: `Проверить ${cluster.title}`,
+      rationale: cluster.recommendedAction,
+      importance: importanceFromCluster(cluster),
+      relatedClusterId: cluster.id,
+    }))
+  }
+
   // First try: parse structured recommendations from LLM-generated markdown
   if (markdown) {
     const parsed = parseRecommendationsFromMarkdown(markdown)
@@ -476,10 +581,21 @@ function buildActionItems(alerts: Alert[], clusters: Cluster[], markdown?: strin
     return clusters.slice(0, 5).map((cluster, index) => ({
       id: `act-${index + 1}`,
       type: "investigation" as const,
-      title: `Investigate ${cluster.title}`,
+      title: locale === "ru" ? `Проверить ${cluster.title}` : `Investigate ${cluster.title}`,
       rationale: cluster.recommendedAction,
       importance: importanceFromCluster(cluster),
       relatedClusterId: cluster.id,
+    }))
+  }
+
+  if (locale === "ru" && alerts.length) {
+    return alerts.slice(0, 3).map((alert, index) => ({
+      id: `act-alert-${index + 1}`,
+      type: actionTypeFromSeverity(alert.severity),
+      title: `Проверить сигнал: ${alert.title}`,
+      rationale: alert.description,
+      importance: alert.severity === "critical" ? 9 : alert.severity === "high" ? 7 : 5,
+      relatedClusterId: alert.clusterId || "",
     }))
   }
 
@@ -754,12 +870,15 @@ function extractExecutiveSummary(artifact: RunArtifact): string | undefined {
   return text || undefined
 }
 
-export function mapRunArtifactToDashboard(artifact: RunArtifact): DashboardData {
+export function mapRunArtifactToDashboard(
+  artifact: RunArtifact,
+  locale: SupportedLocale = "en",
+): DashboardData {
   const reviews = buildReviews(artifact).sort((left, right) => {
     return new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
   })
-  const { clusters, clusterBySubcategory } = buildClusters(reviews)
-  const alerts = buildAlerts(artifact, clusterBySubcategory)
+  const { clusters, clusterBySubcategory } = buildClusters(reviews, locale)
+  const alerts = buildAlerts(artifact, clusterBySubcategory, locale)
   const avgRating = Number(
     artifact.stats?.avg_rating ??
       artifact.app_metadata?.score ??
@@ -769,7 +888,7 @@ export function mapRunArtifactToDashboard(artifact: RunArtifact): DashboardData 
 
   const { issueStats, reputationStats } = buildIssueAndReputationStats(reviews, clusters, alerts, avgRating)
   const synthesisMarkdown = artifact.synthesis_markdown || artifact.markdown || ""
-  const actionItems = buildActionItems(alerts, clusters, synthesisMarkdown)
+  const actionItems = buildActionItems(alerts, clusters, locale, synthesisMarkdown)
   const reportLayers = mapReportLayers(artifact, reviews, alerts, clusters, actionItems)
   const timelineData = buildTimeline(
     reviews,
@@ -784,6 +903,9 @@ export function mapRunArtifactToDashboard(artifact: RunArtifact): DashboardData 
     runId: artifact.run_id || null,
     appName: artifact.app_name || artifact.package_name || "Unknown app",
     packageName: artifact.package_name || "",
+    countriesFetched: artifact.countries_fetched?.length
+      ? artifact.countries_fetched.map((c) => c.toUpperCase())
+      : [String(artifact.country || "us").toUpperCase()],
     product: {
       id: slugify(artifact.package_name || artifact.app_name || "app"),
       name: artifact.app_name || artifact.package_name || "Unknown app",

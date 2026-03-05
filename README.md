@@ -205,6 +205,44 @@ docker compose --profile cli run --rm review-parser \
 {"type":"done"}
 ```
 
+### `GET /api/runs` (run history list)
+
+Возвращает список последних run-артефактов для переключения между генерациями в дашборде.
+
+Query params:
+- `package_name` (optional) — фильтр по пакету
+- `limit` (optional, default `10`, range `1..50`) — кол-во результатов
+
+Response:
+```json
+{
+  "items": [
+    {
+      "run_id": "810c2dabed73",
+      "package_name": "com.example.app",
+      "app_name": "My App",
+      "saved_at": "2026-02-17T14:23:09Z",
+      "country": "us",
+      "window_mode": "7d",
+      "reviews_selected": 300
+    }
+  ],
+  "count": 1
+}
+```
+
+Список отсортирован по времени сохранения (новые первые). Битые JSON-файлы пропускаются.
+
+#### Shared usage via `run_id`
+
+Чтобы поделиться конкретной генерацией с коллегой через ngrok, скопируй URL дашборда — в нём уже есть `?run_id=...`.
+Коллега откроет тот же `run_id` без настройки localStorage.
+
+Переключение между генерациями:
+1. Header дашборда показывает dropdown с последними 10 run'ами текущего приложения.
+2. При выборе run URL обновляется (`?run_id=...`), прочие фильтры (`lang`, `period`, `from`, `to`) сохраняются.
+3. Кнопка **Refresh** рядом с dropdown подгружает свежие run'ы, сгенерированные коллегами — без перезагрузки страницы.
+
 ### `GET /api/runs/{run_id}` (hydration contract for dashboard)
 
 Endpoint для загрузки полного structured artifact по `run_id` для восстановления состояния dashboard.

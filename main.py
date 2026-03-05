@@ -18,6 +18,7 @@ from pipeline import run_unified_pipeline
 from report_builder import build_unified_report
 from scraper import fetch_reviews
 from storage import save_run_artifact
+from utils import safe_name
 from version_tracker import get_current_version, get_previous_version, update_version_history
 
 REPORTS_DIR = Path(__file__).resolve().parent / "reports"
@@ -94,9 +95,7 @@ def parse_google_play_url(url: str, country: str = "us", lang: str = "en") -> tu
 
 
 def _safe_report_name(value: str) -> str:
-    cleaned = re.sub(r"[^a-zA-Z0-9._-]+", "_", value.strip())
-    cleaned = cleaned.strip("_")
-    return cleaned or "report"
+    return safe_name(value, fallback="report")
 
 
 def _parse_args() -> argparse.Namespace:
@@ -229,6 +228,7 @@ async def _run_dashboard_mode(
             "prompt_versions": pipeline_result["prompt_versions"],
             "report_path": str(report_path),
             "legacy_mode": legacy_mode,
+            "feedback_source": "google_play",
             "dashboard_config_snapshot": load_dashboard_config(package_name, "producer"),
             "reviews": reviews,
         },

@@ -37,8 +37,8 @@ REGION_LANGUAGE_SWEEP = [
 ]
 
 
-def _cache_path(package_name: str) -> Path:
-    return DATA_DIR / f"{package_name}.json"
+def _cache_path(package_name: str, country: str = "us") -> Path:
+    return DATA_DIR / f"{package_name}_{country}.json"
 
 
 def _parse_timestamp(value: str) -> datetime:
@@ -48,8 +48,8 @@ def _parse_timestamp(value: str) -> datetime:
     return parsed.astimezone(timezone.utc)
 
 
-def _load_cache(package_name: str, cache_ttl: timedelta) -> dict | None:
-    path = _cache_path(package_name)
+def _load_cache(package_name: str, cache_ttl: timedelta, country: str = "us") -> dict | None:
+    path = _cache_path(package_name, country)
     if not path.exists():
         return None
 
@@ -70,11 +70,17 @@ def _load_cache(package_name: str, cache_ttl: timedelta) -> dict | None:
     return cached
 
 
-def _save_cache(package_name: str, payload: dict) -> None:
+def _save_cache(package_name: str, payload: dict, country: str = "us") -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    path = _cache_path(package_name)
+    path = _cache_path(package_name, country)
     with path.open("w", encoding="utf-8") as handle:
         json.dump(payload, handle, ensure_ascii=False, indent=2)
+
+
+def _has_reply_schema(reviews_payload: list[dict]) -> bool:
+    if not reviews_payload:
+        return True
+    return all(isinstance(item, dict) and "has_reply" in item for item in reviews_payload)
 
 
 def _retryable_fetch(*, package_name: str, lang: str, country: str, count: int, token: str | None):
@@ -134,9 +140,23 @@ def fetch_app_metadata(package_name: str, lang: str, country: str) -> dict:
 def _normalize_review(raw: dict, lang: str) -> dict:
     created_at = raw.get("at")
     if isinstance(created_at, datetime):
-        date_value = created_at.astimezone(timezone.utc).isoformat()
+        if created_at.tzinfo is None:
+            date_value = created_at.replace(tzinfo=timezone.utc).isoformat()
+        else:
+            date_value = created_at.astimezone(timezone.utc).isoformat()
     else:
         date_value = str(created_at or "")
+
+    replied_at = raw.get("repliedAt")
+    if isinstance(replied_at, datetime):
+        if replied_at.tzinfo is None:
+            reply_date_value = replied_at.replace(tzinfo=timezone.utc).isoformat()
+        else:
+            reply_date_value = replied_at.astimezone(timezone.utc).isoformat()
+    else:
+        reply_date_value = str(replied_at or "")
+
+    reply_text = str(raw.get("replyContent") or "").strip()
 
     return {
         "review_id": str(raw.get("reviewId", "")),
@@ -147,6 +167,9 @@ def _normalize_review(raw: dict, lang: str) -> dict:
         "thumbs_up": int(raw.get("thumbsUpCount") or 0),
         "original_lang": lang,
         "lang": lang,
+        "has_reply": bool(reply_text),
+        "reply_text": reply_text or None,
+        "reply_date": reply_date_value or None,
     }
 
 
@@ -200,19 +223,27 @@ def fetch_reviews(
         raise ValueError("At least one language must be provided.")
 
     effective_ttl = cache_ttl if cache_ttl is not None else CACHE_TTL
-    cached = None if force_refresh else _load_cache(package_name, effective_ttl)
+    cached = None if force_refresh else _load_cache(package_name, effective_ttl, country)
     if (
         cached
         and cached.get("country") == country
         and sorted(cached.get("langs", [])) == sorted(languages)
         and isinstance(cached.get("reviews"), list)
         and len(cached["reviews"]) >= max_reviews
+        and _has_reply_schema(cached["reviews"])
     ):
         payload = dict(cached)
         payload["reviews"] = payload["reviews"][:max_reviews]
         for review in payload["reviews"]:
             if "original_lang" not in review:
                 review["original_lang"] = review.get("lang") or languages[0]
+            if "has_reply" not in review:
+                reply_text = str(review.get("reply_text") or "").strip()
+                review["has_reply"] = bool(reply_text)
+                review["reply_text"] = reply_text or None
+            if "reply_date" not in review:
+                reply_date = review.get("reply_date")
+                review["reply_date"] = str(reply_date).strip() if reply_date else None
         # Fetch fresh app metadata even when using cached reviews
         app_metadata = fetch_app_metadata(package_name, languages[0], country)
         payload["app_metadata"] = app_metadata
@@ -242,5 +273,5 @@ def fetch_reviews(
         "reviews": merged_reviews,
         "app_metadata": app_metadata,
     }
-    _save_cache(package_name, payload)
+    _save_cache(package_name, payload, country)
     return payload

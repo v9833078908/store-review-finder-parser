@@ -4,14 +4,15 @@ from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Any, NamedTuple
 
+from config import (
+    CRITICAL_SUBCATEGORIES,
+    MIN_BASELINE_DAYS,
+    MIN_SPIKE_COUNT,
+    NEW_ISSUE_CLUSTER_THRESHOLD,
+    SPIKE_MULTIPLIER,
+    SPIKE_WINDOW_HOURS,
+)
 from utils import parse_date
-
-SPIKE_MULTIPLIER = 2.0
-SPIKE_WINDOW_HOURS = 48
-MIN_SPIKE_COUNT = 5
-MIN_BASELINE_DAYS = 2
-NEW_ISSUE_CLUSTER_THRESHOLD = 3
-CRITICAL_SUBCATEGORIES = {"crash", "progression_loss", "login_auth"}
 
 
 class Alert(NamedTuple):

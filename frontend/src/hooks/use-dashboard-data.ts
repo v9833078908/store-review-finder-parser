@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "next/navigation"
-import type { RunArtifact } from "@/lib/api-types"
+import type { RunArtifact, RunHistoryItem, RunHistoryResponse } from "@/lib/api-types"
 import type { DashboardData, DashboardDataSource } from "@/lib/dashboard-types"
 import { buildEmptyReportLayers } from "@/lib/dashboard-types"
 import { mapRunArtifactToDashboard } from "@/lib/runtime-mapper"
@@ -20,6 +20,12 @@ interface DashboardState {
   error: string | null
 }
 
+interface RunHistoryState {
+  history: RunHistoryItem[]
+  loading: boolean
+  error: string | null
+}
+
 interface RunFetchFilters {
   locale: string
   period: string
@@ -27,11 +33,19 @@ interface RunFetchFilters {
   dateTo: string
 }
 
+class RunNotFoundError extends Error {
+  constructor(runId: string) {
+    super(`Run not found: ${runId}`)
+    this.name = "RunNotFoundError"
+  }
+}
+
 function buildEmptyDashboardData(): DashboardData {
   return {
     runId: null,
     appName: "No active run",
     packageName: "",
+    countriesFetched: [],
     product: {
       id: "none",
       name: "No active run",
@@ -79,10 +93,33 @@ async function fetchRunArtifact(runId: string, filters: RunFetchFilters): Promis
     method: "GET",
     cache: "no-store",
   })
+  if (response.status === 404) {
+    throw new RunNotFoundError(runId)
+  }
   if (!response.ok) {
     throw new Error(`Failed to fetch run ${runId} (${response.status})`)
   }
   return (await response.json()) as RunArtifact
+}
+
+async function fetchRunHistoryFromApi(limit = 10): Promise<RunHistoryResponse> {
+  const url = new URL("/api/runs", window.location.origin)
+  url.searchParams.set("limit", String(limit))
+  url.searchParams.set("unique_apps", "true")
+  const response = await fetch(url.toString(), { cache: "no-store" })
+  if (!response.ok) {
+    throw new Error(`Failed to fetch run history (${response.status})`)
+  }
+  return (await response.json()) as RunHistoryResponse
+}
+
+async function fetchLatestRunId(): Promise<string | null> {
+  try {
+    const data = await fetchRunHistoryFromApi(1)
+    return data.items[0]?.run_id ?? null
+  } catch {
+    return null
+  }
 }
 
 function buildStorageKey(scope: string): string {
@@ -139,35 +176,86 @@ export function useDashboardData() {
     error: null,
   }))
 
+  const [runHistoryState, setRunHistoryState] = useState<RunHistoryState>({
+    history: [],
+    loading: false,
+    error: null,
+  })
+
+  const [warning, setWarning] = useState<string | null>(null)
+
+  const refreshRunHistory = useCallback(async () => {
+    setRunHistoryState((prev) => ({ ...prev, loading: true, error: null }))
+    try {
+      const data = await fetchRunHistoryFromApi(10)
+      setRunHistoryState({ history: data.items, loading: false, error: null })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to load run history"
+      setRunHistoryState((prev) => ({ ...prev, loading: false, error: message }))
+    }
+  }, [])
+
   const load = useCallback(async () => {
     setState((prev) => ({ ...prev, loading: true, error: null }))
+    setWarning(null)
 
     const runIdFromStorage = typeof window !== "undefined" ? localStorage.getItem(TAB_RUN_ID_KEY) : null
     const runIdFromLegacy = typeof window !== "undefined" ? localStorage.getItem(LEGACY_RUN_ID_KEY) : null
-    const targetRunId = searchRunId || runIdFromStorage || runIdFromLegacy
+    let targetRunId = searchRunId || runIdFromStorage || runIdFromLegacy
 
+    // Fallback: if no run_id available, try the most recent run from server
     if (!targetRunId) {
-      setState({
-        data: buildEmptyDashboardData(),
-        source: "api",
-        loading: false,
-        error: "No active run. Generate a report from Search App first.",
-      })
-      return
+      targetRunId = await fetchLatestRunId()
+      if (!targetRunId) {
+        setState({
+          data: buildEmptyDashboardData(),
+          source: "api",
+          loading: false,
+          error: "No active run. Generate a report from Search App first.",
+        })
+        return
+      }
     }
 
     const scope = buildScope(targetRunId, requestFilters)
 
     try {
       const artifact = await fetchRunArtifact(targetRunId, requestFilters)
-      const mapped = mapRunArtifactToDashboard(artifact)
+      const mapped = mapRunArtifactToDashboard(artifact, requestFilters.locale as "en" | "ru")
       writeCachedDashboard(scope, mapped)
       if (typeof window !== "undefined") {
         localStorage.setItem(TAB_RUN_ID_KEY, mapped.runId || targetRunId)
         localStorage.setItem(LEGACY_RUN_ID_KEY, mapped.runId || targetRunId)
       }
       setState({ data: mapped, source: "api", loading: false, error: null })
+      void refreshRunHistory()
     } catch (error) {
+      // If the specific run was not found, fall back to the latest available run
+      if (error instanceof RunNotFoundError) {
+        const latestRunId = await fetchLatestRunId()
+        if (latestRunId && latestRunId !== targetRunId) {
+          setWarning("run_not_found")
+          try {
+            const fallbackArtifact = await fetchRunArtifact(latestRunId, requestFilters)
+            const fallbackMapped = mapRunArtifactToDashboard(
+              fallbackArtifact,
+              requestFilters.locale as "en" | "ru",
+            )
+            const fallbackScope = buildScope(latestRunId, requestFilters)
+            writeCachedDashboard(fallbackScope, fallbackMapped)
+            if (typeof window !== "undefined") {
+              localStorage.setItem(TAB_RUN_ID_KEY, latestRunId)
+              localStorage.setItem(LEGACY_RUN_ID_KEY, latestRunId)
+            }
+            setState({ data: fallbackMapped, source: "api", loading: false, error: null })
+            void refreshRunHistory()
+            return
+          } catch {
+            // Fall through to cache/error handling below
+          }
+        }
+      }
+
       const message = error instanceof Error ? error.message : "Failed to load dashboard data"
       const cached = typeof window !== "undefined" ? readCachedDashboard(scope) : null
       if (cached) {
@@ -187,7 +275,7 @@ export function useDashboardData() {
         error: message,
       })
     }
-  }, [requestFilters, searchRunId])
+  }, [requestFilters, searchRunId, refreshRunHistory])
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -198,12 +286,20 @@ export function useDashboardData() {
     return filterDashboardDataByDate(state.data, resolvedDateRange)
   }, [resolvedDateRange, state.data])
 
+  const totalAnalyzedReviews = state.data.reviews.length
+
   return useMemo(
     () => ({
       ...state,
       data: filteredData,
+      totalAnalyzedReviews,
       reload: load,
+      runHistory: runHistoryState.history,
+      runHistoryLoading: runHistoryState.loading,
+      runHistoryError: runHistoryState.error,
+      warning,
+      refreshRunHistory,
     }),
-    [filteredData, load, state],
+    [filteredData, totalAnalyzedReviews, load, runHistoryState, warning, refreshRunHistory, state],
   )
 }

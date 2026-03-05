@@ -2,30 +2,25 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-import os
 import uuid
 from typing import Any, Awaitable, Callable
 
-from anthropic import AsyncAnthropic
 from observability import observe, update_current_span, update_current_trace
 
 from alerts import Alert, detect_alerts
 from analyzer import run_theme_extraction
 from classifier import run_classification
+from config import SHARED_PIPELINE_CONCURRENCY
+from llm import call_llm, get_model_for_task
 from report_layers import build_report_layers
 from utils import (
-    DEFAULT_MODEL,
     build_category_counts,
-    call_model,
-    get_client_and_model,
     load_prompt,
     log_event,
     prompt_version,
     review_stats,
     to_json,
 )
-
-SHARED_MAX_CONCURRENCY = 6
 
 PipelineEvent = dict[str, Any]
 PipelineProgressCallback = Callable[[PipelineEvent], Awaitable[None] | None]
@@ -43,6 +38,7 @@ def _alerts_to_json(alerts: list[Alert]) -> list[dict[str, Any]]:
         for alert in alerts
     ]
 
+
 @observe(name="run_unified_pipeline", capture_input=False, capture_output=False)
 async def run_unified_pipeline(
     reviews: list[dict[str, Any]],
@@ -51,15 +47,15 @@ async def run_unified_pipeline(
     known_issues: list[str] | None = None,
     current_version: dict[str, Any] | None = None,
     previous_version: dict[str, Any] | None = None,
-    client: AsyncAnthropic | None = None,
-    model: str | None = None,
-    semaphore_size: int = SHARED_MAX_CONCURRENCY,
+    semaphore_size: int = SHARED_PIPELINE_CONCURRENCY,
     progress_callback: PipelineProgressCallback | None = None,
 ) -> dict[str, Any]:
     run_id = uuid.uuid4().hex[:12]
     known_issues = known_issues or []
     loop = asyncio.get_running_loop()
     started_at = loop.time()
+    synthesis_model = get_model_for_task("synthesis")
+
     update_current_trace(
         name="unified_pipeline",
         session_id=run_id,
@@ -67,7 +63,7 @@ async def run_unified_pipeline(
             "run_id": run_id,
             "app_name": app_name,
             "reviews_total": len(reviews),
-            "model": model,
+            "model": synthesis_model,
         },
         tags=["pipeline", "reviews"],
     )
@@ -80,19 +76,12 @@ async def run_unified_pipeline(
         if inspect.isawaitable(maybe_awaitable):
             await maybe_awaitable
 
-    if client is None:
-        client, resolved_model = get_client_and_model()
-    else:
-        resolved_model = model or (os.getenv("ANTHROPIC_MODEL", DEFAULT_MODEL).strip() or DEFAULT_MODEL)
-    if model:
-        resolved_model = model
-
     log_event(
         "pipeline_started",
         run_id=run_id,
         app_name=app_name,
         reviews_total=len(reviews),
-        model=resolved_model,
+        model=synthesis_model,
         semaphore_size=semaphore_size,
     )
     update_current_span(
@@ -121,7 +110,7 @@ async def run_unified_pipeline(
                 alerts=[],
                 category_counts={},
             ),
-            "model": resolved_model,
+            "model": synthesis_model,
             "prompt_versions": {
                 "analyze_batch": prompt_version("analyze_batch.txt"),
                 "classify_batch": prompt_version("classify_batch.txt"),
@@ -141,8 +130,6 @@ async def run_unified_pipeline(
 
     themes_task = asyncio.create_task(
         run_theme_extraction(
-            client=client,
-            model=resolved_model,
             reviews=reviews,
             semaphore=semaphore,
             progress_callback=_themes_progress,
@@ -150,8 +137,6 @@ async def run_unified_pipeline(
     )
     classify_task = asyncio.create_task(
         run_classification(
-            client=client,
-            model=resolved_model,
             reviews=reviews,
             changelog=changelog,
             known_issues=known_issues,
@@ -179,13 +164,8 @@ async def run_unified_pipeline(
         .replace("{{THEMES_JSON}}", to_json(themes[:20]))
         .replace("{{ALERTS_JSON}}", to_json(_alerts_to_json(alerts)))
     )
-    synthesis_markdown = await call_model(
-        client=client,
-        model=resolved_model,
-        prompt=synthesis_prompt,
-        max_tokens=2200,
-        prompt_name="unified_report",
-    )
+    synthesis_markdown = await call_llm(synthesis_prompt, task="synthesis", max_tokens=2200)
+
     report_layers = build_report_layers(
         app_name=app_name,
         stats=stats,
@@ -196,6 +176,7 @@ async def run_unified_pipeline(
     )
 
     await _emit({"type": "status", "step": "analyzed"})
+    duration_ms = round((loop.time() - started_at) * 1000)
     log_event(
         "pipeline_completed",
         run_id=run_id,
@@ -203,7 +184,7 @@ async def run_unified_pipeline(
         reviews_total=len(reviews),
         alerts_total=len(alerts),
         themes_total=len(themes),
-        duration_ms=round((loop.time() - started_at) * 1000),
+        duration_ms=duration_ms,
     )
     update_current_trace(
         session_id=run_id,
@@ -212,7 +193,7 @@ async def run_unified_pipeline(
             "alerts_total": len(alerts),
             "themes_total": len(themes),
             "reviews_total": len(reviews),
-            "duration_ms": round((loop.time() - started_at) * 1000),
+            "duration_ms": duration_ms,
         },
     )
 
@@ -225,7 +206,7 @@ async def run_unified_pipeline(
         "category_counts": category_counts,
         "synthesis_markdown": synthesis_markdown.strip(),
         "report_layers": report_layers,
-        "model": resolved_model,
+        "model": synthesis_model,
         "prompt_versions": {
             "analyze_batch": prompt_version("analyze_batch.txt"),
             "classify_batch": prompt_version("classify_batch.txt"),

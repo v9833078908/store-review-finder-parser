@@ -158,6 +158,8 @@ def fetch_app_details(app_id: str, lang: str, country: str) -> dict[str, Any]:
         "score": float(details.get("score") or 0),
         "reviews": int(details.get("reviews") or 0),
         "url": details.get("url") or f"https://play.google.com/store/apps/details?id={app_id}",
+        "installs": details.get("installs") or None,
+        "min_installs": int(details.get("minInstalls") or 0),
     }
 
 
@@ -336,6 +338,8 @@ def run_catalog_scan(
                 "score": details["score"],
                 "total_reviews_count": details["reviews"],
                 "sample_size": analysis["sample_size"],
+                "installs": details.get("installs"),
+                "min_installs": details.get("min_installs", 0),
             }
             results.append(row)
 

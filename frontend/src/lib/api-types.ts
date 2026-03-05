@@ -14,9 +14,16 @@ export interface ApiReview {
   date: string
   rating: number
   text: string
+  text_original?: string | null
   version?: string | null
   lang?: string | null
   original_lang?: string | null
+  has_reply?: boolean | null
+  reply_text?: string | null
+  reply_date?: string | null
+  /** Feedback source identifier — added in GamePulse Phase 1 multi-source support.
+   *  Absent on artifacts generated before the migration. */
+  source?: string | null
 }
 
 export interface ApiClassification {
@@ -67,7 +74,11 @@ export interface RunArtifact {
   fetched_at?: string
   saved_at?: string
   country?: string
+  countries_fetched?: string[]
   langs?: string[]
+  /** Primary feedback source for this artifact (e.g. "google_play").
+   *  Added in GamePulse Phase 1. Absent on older artifacts — treat as "google_play". */
+  feedback_source?: string
   current_version?: ApiVersionInfo
   previous_version?: ApiVersionInfo
   stats?: ApiStats
@@ -88,6 +99,23 @@ export interface RunArtifact {
     ratings?: number
     score?: number
   }
+}
+
+export interface RunHistoryItem {
+  run_id: string
+  package_name: string
+  app_name: string
+  saved_at?: string
+  country?: string
+  window_mode?: string
+  reviews_selected?: number
+  current_version?: ApiVersionInfo
+  previous_version?: ApiVersionInfo
+}
+
+export interface RunHistoryResponse {
+  items: RunHistoryItem[]
+  count: number
 }
 
 export interface ReportSummaryPayload {

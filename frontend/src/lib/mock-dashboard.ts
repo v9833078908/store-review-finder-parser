@@ -25,6 +25,7 @@ export function buildMockDashboardData(locale: SupportedLocale): DashboardData {
     runId: null,
     appName: product.name,
     packageName: product.packageId,
+    countriesFetched: [],
     product,
     reputationStats,
     issueStats,

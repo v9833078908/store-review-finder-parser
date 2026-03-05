@@ -106,6 +106,7 @@ export function ResultsTable({
             <TableHead className="text-right"><SortButton field="lead_score" label="Lead Score" onSort={handleSort} /></TableHead>
             <TableHead className="text-right"><SortButton field="score" label="Rating" onSort={handleSort} /></TableHead>
             <TableHead className="text-right"><SortButton field="total_reviews_count" label="Reviews" onSort={handleSort} /></TableHead>
+            <TableHead className="text-right"><SortButton field="min_installs" label="Downloads" onSort={handleSort} /></TableHead>
             <TableHead className="text-right">Actions</TableHead>
           </TableRow>
         </TableHeader>
@@ -129,6 +130,7 @@ export function ResultsTable({
               </TableCell>
               <TableCell className="text-right">{result.score.toFixed(1)}</TableCell>
               <TableCell className="text-right">{result.total_reviews_count.toLocaleString()}</TableCell>
+              <TableCell className="text-right">{result.installs ?? "—"}</TableCell>
               <TableCell className="text-right">
                 <Button variant="outline" size="sm" asChild disabled={!canGenerateReports}>
                   <a href={canGenerateReports ? buildReportUrl(result) : "#"} target="_blank" rel="noopener noreferrer">

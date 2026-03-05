@@ -59,6 +59,7 @@ export interface DashboardData {
   runId: string | null
   appName: string
   packageName: string
+  countriesFetched: string[]
   product: Product
   reputationStats: ReputationStats
   issueStats: IssueStats

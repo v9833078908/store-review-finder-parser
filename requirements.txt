@@ -1,5 +1,6 @@
 google-play-scraper>=1.2.7
 anthropic>=0.40.0
+openai>=1.0.0
 langfuse>=3.14.0
 opentelemetry-instrumentation-anthropic>=0.52.0
 python-dotenv>=1.0.0

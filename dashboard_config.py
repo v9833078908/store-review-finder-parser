@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import json
-import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from utils import safe_name as _safe_name_util
 
 DATA_DIR = Path(__file__).resolve().parent / "data"
 CONFIGS_DIR = DATA_DIR / "dashboard-configs"
@@ -71,9 +72,7 @@ DEFAULT_CONFIG_BY_ROLE: dict[str, dict[str, Any]] = {
 
 
 def _safe_name(value: str) -> str:
-    cleaned = re.sub(r"[^a-zA-Z0-9._-]+", "_", value.strip())
-    cleaned = cleaned.strip("_")
-    return cleaned or "default"
+    return _safe_name_util(value, fallback="default")
 
 
 def _now_iso() -> str:

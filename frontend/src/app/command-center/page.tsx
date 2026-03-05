@@ -130,6 +130,8 @@ export default function CommandCenterPage() {
           issues={data.issueStats}
           response={data.responseStats}
           kpiSet={config.kpi_set}
+          filteredReviewCount={data.reviews.length}
+          countriesFetched={data.countriesFetched}
         />
       )}
 

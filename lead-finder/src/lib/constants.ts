@@ -32,7 +32,7 @@ export const CATEGORIES = [
 // Supported countries (tested to work with google-play-scraper)
 export const SUPPORTED_COUNTRIES = [
   'us', 'gb', 'de', 'fr', 'es', 'it', 'jp', 'kr', 'cn', 'in',
-  'br', 'ca', 'au', 'mx', 'nl', 'se', 'no', 'dk', 'fi', 'pl'
+  'br', 'ca', 'au', 'mx', 'nl', 'se', 'no', 'dk', 'fi', 'pl', 'ru'
 ] as const;
 
 // Default values

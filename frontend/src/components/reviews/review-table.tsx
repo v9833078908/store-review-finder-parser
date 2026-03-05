@@ -20,7 +20,7 @@ import { ChevronDown, ChevronRight, Download, Star } from "lucide-react"
 import type { Review } from "@/lib/types"
 import { categoryColor, severityBadgeVariant, formatDateTime } from "@/lib/utils"
 import { useDashboardPreferences } from "@/lib/dashboard-preferences"
-import { formatCategory, formatSentiment, getUiText } from "@/lib/i18n"
+import { formatCategory, formatSentiment, formatThemeLabel, getUiText } from "@/lib/i18n"
 
 interface ReviewTableProps {
   reviews: Review[]
@@ -164,7 +164,7 @@ export function ReviewTable({ reviews }: ReviewTableProps) {
                               </Badge>
                               {review.themes.map((theme, i) => (
                                 <Badge key={i} variant="secondary" className="text-xs">
-                                  {theme}
+                                  {formatThemeLabel(theme, locale)}
                                 </Badge>
                               ))}
                             </div>

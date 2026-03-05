@@ -114,6 +114,8 @@ export async function GET(request: NextRequest) {
               score: appDetails.score,
               total_reviews_count: appDetails.reviews,
               sample_size: analysis.sample_size,
+              installs: null,
+              min_installs: 0,
             };
 
             // Send result

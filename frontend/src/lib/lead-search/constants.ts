@@ -48,6 +48,7 @@ export const SUPPORTED_COUNTRIES = [
   "dk",
   "fi",
   "pl",
+  "ru",
 ] as const
 
 export const DEFAULTS = {

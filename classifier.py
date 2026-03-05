@@ -2,24 +2,18 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Any, Awaitable, Callable
+from typing import Any
 
-from anthropic import AsyncAnthropic
-
+from config import CLASSIFY_BATCH_SIZE, DEFAULT_MAX_CONCURRENCY
+from llm import call_llm
 from utils import (
-    call_model,
-    chunked,
+    ProgressCallback,
     compact_review,
     extract_json_text,
-    get_client_and_model,
     load_prompt,
+    run_batched,
     to_json,
 )
-
-DEFAULT_BATCH_SIZE = 30
-MAX_BATCH_CONCURRENCY = 4
-
-ProgressCallback = Callable[[int, int], Awaitable[None] | None]
 
 
 def _normalize_classification(raw: dict[str, Any]) -> dict[str, Any]:
@@ -66,8 +60,6 @@ def _default_classification(review_id: str) -> dict[str, Any]:
 
 
 async def _classify_batch(
-    client: AsyncAnthropic,
-    model: str,
     batch: list[dict[str, Any]],
     prompt_template: str,
     changelog: str,
@@ -82,16 +74,15 @@ async def _classify_batch(
         .replace("{{REVIEWS_JSON}}", to_json(compact_batch))
     )
 
-    raw = await call_model(client, model, prompt, max_tokens=4000, prompt_name="classify_batch")
+    raw = await call_llm(prompt, task="classification", max_tokens=4000)
     parsed = json.loads(extract_json_text(raw))
 
     if not isinstance(parsed, list):
         raise ValueError("Model returned unexpected payload for classification.")
 
     normalized = [_normalize_classification(item) for item in parsed if isinstance(item, dict)]
-
-    # Ensure one classification entry per input review.
     normalized_by_id = {item["review_id"]: item for item in normalized if item.get("review_id")}
+
     ordered: list[dict[str, Any]] = []
     for review in batch:
         review_id = str(review.get("review_id") or "")
@@ -102,38 +93,24 @@ async def _classify_batch(
 
 
 async def run_classification(
-    client: AsyncAnthropic,
-    model: str,
     reviews: list[dict[str, Any]],
     changelog: str,
     known_issues: list[str],
     semaphore: asyncio.Semaphore,
-    batch_size: int = DEFAULT_BATCH_SIZE,
+    batch_size: int = CLASSIFY_BATCH_SIZE,
     progress_callback: ProgressCallback | None = None,
 ) -> list[dict[str, Any]]:
     if not reviews:
         return []
 
     prompt_template = load_prompt("classify_batch.txt")
-    batches = chunked(reviews, batch_size)
-    total = len(batches)
-    done = 0
-
-    async def _guarded(batch: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        async with semaphore:
-            return await _classify_batch(client, model, batch, prompt_template, changelog, known_issues)
-
-    all_classifications: list[dict[str, Any]] = []
-    tasks = [asyncio.create_task(_guarded(batch)) for batch in batches]
-    for task in asyncio.as_completed(tasks):
-        all_classifications.extend(await task)
-        done += 1
-        if progress_callback:
-            maybe_awaitable = progress_callback(done, total)
-            if asyncio.iscoroutine(maybe_awaitable):
-                await maybe_awaitable
-
-    return all_classifications
+    return await run_batched(
+        items=reviews,
+        batch_size=batch_size,
+        processor=lambda batch: _classify_batch(batch, prompt_template, changelog, known_issues),
+        semaphore=semaphore,
+        progress_callback=progress_callback,
+    )
 
 
 async def classify_reviews(
@@ -145,11 +122,8 @@ async def classify_reviews(
     if not reviews:
         return []
 
-    client, model = get_client_and_model()
-    semaphore = asyncio.Semaphore(MAX_BATCH_CONCURRENCY)
+    semaphore = asyncio.Semaphore(DEFAULT_MAX_CONCURRENCY)
     return await run_classification(
-        client=client,
-        model=model,
         reviews=reviews,
         changelog=changelog,
         known_issues=known_issues or [],

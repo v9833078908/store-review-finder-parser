@@ -4,25 +4,20 @@ import asyncio
 import json
 import re
 from difflib import SequenceMatcher
-from typing import Any, Awaitable, Callable
+from typing import Any
 
-from anthropic import AsyncAnthropic
-
+from config import DEFAULT_MAX_CONCURRENCY, THEME_BATCH_SIZE
+from llm import call_llm
 from utils import (
-    call_model,
+    ProgressCallback,
     chunked,
     compact_review,
     extract_json_text,
-    get_client_and_model,
     load_prompt,
     review_stats,
+    run_batched,
     to_json,
 )
-
-DEFAULT_BATCH_SIZE = 50
-MAX_BATCH_CONCURRENCY = 4
-
-ProgressCallback = Callable[[int, int], Awaitable[None] | None]
 
 
 def _normalize_theme(raw: dict[str, Any]) -> dict[str, Any]:
@@ -89,15 +84,12 @@ def _themes_match(left: str, right: str) -> bool:
 
 
 async def _analyze_batch(
-    client: AsyncAnthropic,
-    model: str,
     batch: list[dict[str, Any]],
     prompt_template: str,
 ) -> list[dict[str, Any]]:
     compact_batch = [compact_review(review, max_text=800) for review in batch]
-
     prompt = prompt_template.replace("{{REVIEWS_JSON}}", to_json(compact_batch))
-    raw = await call_model(client, model, prompt, max_tokens=1800, prompt_name="analyze_batch")
+    raw = await call_llm(prompt, task="theme_extraction", max_tokens=1800)
     parsed = json.loads(extract_json_text(raw))
     if isinstance(parsed, dict):
         parsed = parsed.get("themes", [])
@@ -106,7 +98,12 @@ async def _analyze_batch(
     return [_normalize_theme(item) for item in parsed if isinstance(item, dict)]
 
 
-def merge_themes(all_themes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+# ---------------------------------------------------------------------------
+# merge_themes — split into three focused functions
+# ---------------------------------------------------------------------------
+
+def _accumulate_themes(all_themes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Group and merge theme dicts that refer to the same concept."""
     merged: list[dict[str, Any]] = []
     for theme in all_themes:
         match = next((item for item in merged if _themes_match(item["name"], theme["name"])), None)
@@ -134,6 +131,11 @@ def merge_themes(all_themes: list[dict[str, Any]]) -> list[dict[str, Any]]:
             match["rating_total"] += theme["avg_rating"] * theme["count"]
             match["rating_weight"] += theme["count"]
 
+    return merged
+
+
+def _consolidate_themes(merged: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Compute final sentiment, severity, and sort by relevance."""
     consolidated: list[dict[str, Any]] = []
     for item in merged:
         sentiment = max(item["sentiments"].items(), key=lambda pair: pair[1])[0]
@@ -150,47 +152,40 @@ def merge_themes(all_themes: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "quotes": item["quotes"][:4],
             }
         )
-
     consolidated.sort(key=lambda item: (item["severity"], item["count"]), reverse=True)
     return consolidated
 
 
+def merge_themes(all_themes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Merge raw per-batch themes into a deduplicated, sorted list."""
+    return _consolidate_themes(_accumulate_themes(all_themes))
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
 async def run_theme_extraction(
-    client: AsyncAnthropic,
-    model: str,
     reviews: list[dict[str, Any]],
     semaphore: asyncio.Semaphore,
-    batch_size: int = DEFAULT_BATCH_SIZE,
+    batch_size: int = THEME_BATCH_SIZE,
     progress_callback: ProgressCallback | None = None,
 ) -> list[dict[str, Any]]:
     if not reviews:
         return []
 
     prompt_template = load_prompt("analyze_batch.txt")
-    batches = chunked(reviews, batch_size)
-    total = len(batches)
-    done = 0
-
-    async def _guarded(batch: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        async with semaphore:
-            return await _analyze_batch(client, model, batch, prompt_template)
-
-    results: list[dict[str, Any]] = []
-    tasks = [asyncio.create_task(_guarded(batch)) for batch in batches]
-    for task in asyncio.as_completed(tasks):
-        results.extend(await task)
-        done += 1
-        if progress_callback:
-            maybe_awaitable = progress_callback(done, total)
-            if asyncio.iscoroutine(maybe_awaitable):
-                await maybe_awaitable
-
-    return merge_themes(results)
+    raw_themes = await run_batched(
+        items=reviews,
+        batch_size=batch_size,
+        processor=lambda batch: _analyze_batch(batch, prompt_template),
+        semaphore=semaphore,
+        progress_callback=progress_callback,
+    )
+    return merge_themes(raw_themes)
 
 
 async def _generate_summary(
-    client: AsyncAnthropic,
-    model: str,
     themes: list[dict[str, Any]],
     app_name: str,
     stats: dict[str, Any],
@@ -201,23 +196,27 @@ async def _generate_summary(
         .replace("{{STATS_JSON}}", to_json(stats))
         .replace("{{THEMES_JSON}}", to_json(themes))
     )
-    return await call_model(client, model, prompt, max_tokens=1400, prompt_name="executive_summary")
+    return await call_llm(prompt, task="synthesis", max_tokens=1400)
 
 
-def _format_rating(value: float | None, fallback: float) -> str:
-    if value is None:
-        return f"{fallback:.2f}"
-    return f"{value:.2f}"
+async def analyze_reviews(reviews: list[dict[str, Any]], app_name: str) -> str:
+    """Compatibility wrapper for legacy report mode."""
+    if not reviews:
+        return (
+            f"# Review Analysis: {app_name}\n\n"
+            "**Period:** unknown | **Reviews analyzed:** 0 | **Avg rating:** 0.00/5\n\n"
+            "No reviews were found."
+        )
 
+    from utils import escape_table_cell, format_rating
 
-def _escape_table_cell(value: str) -> str:
-    return value.replace("|", "\\|")
+    semaphore = asyncio.Semaphore(DEFAULT_MAX_CONCURRENCY)
+    themes = await run_theme_extraction(reviews, semaphore)
+    stats = review_stats(reviews)
+    summary = await _generate_summary(themes, app_name, stats)
 
-
-def _build_report(app_name: str, stats: dict[str, Any], summary: str, themes: list[dict[str, Any]]) -> str:
     critical = [item for item in themes if item["sentiment"] in {"negative", "mixed"}]
     critical.sort(key=lambda item: (item["severity"], item["count"]), reverse=True)
-
     positive = [item for item in themes if item["sentiment"] == "positive"]
     positive.sort(key=lambda item: item["count"], reverse=True)
 
@@ -269,32 +268,14 @@ def _build_report(app_name: str, stats: dict[str, Any], summary: str, themes: li
             "| "
             + " | ".join(
                 [
-                    _escape_table_cell(theme["name"]),
+                    escape_table_cell(theme["name"]),
                     theme["sentiment"],
                     str(theme["count"]),
                     str(theme["severity"]),
-                    _format_rating(theme.get("avg_rating"), stats["avg_rating"]),
+                    format_rating(theme.get("avg_rating"), stats["avg_rating"]),
                 ]
             )
             + " |"
         )
 
     return "\n".join(lines).strip() + "\n"
-
-
-async def analyze_reviews(reviews: list[dict[str, Any]], app_name: str) -> str:
-    """Compatibility wrapper for legacy report mode."""
-    if not reviews:
-        return (
-            f"# Review Analysis: {app_name}\n\n"
-            "**Period:** unknown | **Reviews analyzed:** 0 | **Avg rating:** 0.00/5\n\n"
-            "No reviews were found."
-        )
-
-    client, model = get_client_and_model()
-    semaphore = asyncio.Semaphore(MAX_BATCH_CONCURRENCY)
-    themes = await run_theme_extraction(client, model, reviews, semaphore)
-    stats = review_stats(reviews)
-    summary = await _generate_summary(client, model, themes, app_name, stats)
-
-    return _build_report(app_name, stats, summary, themes)

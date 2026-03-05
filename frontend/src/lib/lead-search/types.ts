@@ -22,6 +22,8 @@ export interface AppResult {
   score: number
   total_reviews_count: number
   sample_size: number
+  installs: string | null
+  min_installs: number
 }
 
 export type ScanEvent =

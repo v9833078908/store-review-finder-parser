@@ -37,6 +37,7 @@ export function buildMockDashboardData(locale: SupportedLocale): DashboardData {
     actionItems,
     reportLayers,
     markdown: "",
+    communityDataLoaded: false,
     lastUpdated: new Date().toISOString(),
     source: "mock",
   }

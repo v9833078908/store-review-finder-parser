@@ -16,7 +16,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible"
-import { ChevronDown, ChevronRight, Download, Star } from "lucide-react"
+import { ChevronDown, ChevronRight, Download, MessageSquareText, Star, Store } from "lucide-react"
 import type { Review } from "@/lib/types"
 import { categoryColor, severityBadgeVariant, formatDateTime } from "@/lib/utils"
 import { useDashboardPreferences } from "@/lib/dashboard-preferences"
@@ -51,6 +51,7 @@ export function ReviewTable({ reviews }: ReviewTableProps) {
       text.reviewTable.originalLang,
       text.reviewFilters.country,
       text.reviewFilters.version,
+      text.reviewTable.source,
       text.reviewTable.category,
       text.reviewTable.sentiment,
       text.reviewTable.severity,
@@ -62,6 +63,7 @@ export function ReviewTable({ reviews }: ReviewTableProps) {
       r.originalLang || r.lang,
       r.country,
       r.appVersion,
+      r.source,
       r.category,
       r.sentiment,
       r.severity,
@@ -94,6 +96,7 @@ export function ReviewTable({ reviews }: ReviewTableProps) {
             <TableHead className="w-[40px]"></TableHead>
             <TableHead>{text.reviewTable.date}</TableHead>
             <TableHead>{text.reviewFilters.rating}</TableHead>
+            <TableHead>{text.reviewTable.source}</TableHead>
             <TableHead>{text.reviewTable.text}</TableHead>
             <TableHead>{text.reviewTable.originalLang}</TableHead>
             <TableHead>{text.reviewFilters.country}</TableHead>
@@ -135,6 +138,21 @@ export function ReviewTable({ reviews }: ReviewTableProps) {
                         <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
                       </div>
                     </TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className="gap-1 text-xs">
+                        {review.source === "google_play" ? (
+                          <>
+                            <Store className="h-3 w-3" />
+                            GP
+                          </>
+                        ) : (
+                          <>
+                            <MessageSquareText className="h-3 w-3" />
+                            TG
+                          </>
+                        )}
+                      </Badge>
+                    </TableCell>
                     <TableCell className="max-w-md">
                       <div className="truncate text-sm">{preview}</div>
                     </TableCell>
@@ -153,12 +171,17 @@ export function ReviewTable({ reviews }: ReviewTableProps) {
                     </TableCell>
                   </TableRow>
                   <TableRow>
-                    <TableCell colSpan={9} className="p-0">
+                    <TableCell colSpan={10} className="p-0">
                       <CollapsibleContent>
                         <div className="border-t bg-muted/50 p-4">
                           <div className="space-y-2">
                             <div className="text-sm leading-relaxed">{review.text}</div>
                             <div className="flex flex-wrap gap-2 pt-2">
+                              {review.communityUsername && (
+                                <Badge variant="outline" className="text-xs">
+                                  {text.reviewTable.username}: @{review.communityUsername}
+                                </Badge>
+                              )}
                               <Badge variant="outline" className="text-xs">
                                 {text.reviewTable.sentiment}: {formatSentiment(review.sentiment, locale)}
                               </Badge>

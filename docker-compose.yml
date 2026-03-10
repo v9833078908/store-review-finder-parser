@@ -42,6 +42,8 @@ services:
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
       INTERNAL_API_URL: ${INTERNAL_API_URL:-http://review-api:8000}
+    volumes:
+      - ./data:/app/data
     ports:
       - "51200:51200"
     depends_on:

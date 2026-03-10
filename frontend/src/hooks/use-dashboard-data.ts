@@ -5,9 +5,12 @@ import { useSearchParams } from "next/navigation"
 import type { RunArtifact, RunHistoryItem, RunHistoryResponse } from "@/lib/api-types"
 import type { DashboardData, DashboardDataSource } from "@/lib/dashboard-types"
 import { buildEmptyReportLayers } from "@/lib/dashboard-types"
-import { mapRunArtifactToDashboard } from "@/lib/runtime-mapper"
+import { mapRunArtifactToDashboard, buildClustersFromReviews, buildTimelineFromReviews } from "@/lib/runtime-mapper"
 import { useDashboardPreferences } from "@/lib/dashboard-preferences"
 import { filterDashboardDataByDate } from "@/lib/dashboard-filtering"
+import { fetchCommunityDataFile, mapCommunityBundle } from "@/hooks/use-community-data"
+import type { CommunityDataFile } from "@/lib/community-types"
+import type { FeedbackSource, Review } from "@/lib/types"
 
 const STORAGE_KEY_PREFIX = "review-dashboard:data:v2"
 const TAB_RUN_ID_KEY = "review-dashboard:active-run-id:tab:v1"
@@ -77,8 +80,46 @@ function buildEmptyDashboardData(): DashboardData {
     actionItems: [],
     reportLayers: buildEmptyReportLayers(),
     markdown: undefined,
+    communityDataLoaded: false,
     lastUpdated: new Date().toISOString(),
     source: "api",
+  }
+}
+
+function sortReviewsByDate(reviews: Review[]): Review[] {
+  return [...reviews].sort((left, right) => {
+    return new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
+  })
+}
+
+function mergeCommunityIntoDashboard(
+  base: DashboardData,
+  locale: "en" | "ru",
+  payload: CommunityDataFile | null,
+): DashboardData {
+  if (!payload) {
+    return {
+      ...base,
+      communityDataLoaded: false,
+    }
+  }
+
+  const mapped = mapCommunityBundle(payload, base.product.id, base.reviews)
+  const unifiedReviews = sortReviewsByDate([...base.reviews, ...mapped.communityReviews])
+
+  return {
+    ...base,
+    reviews: unifiedReviews,
+    product: {
+      ...base.product,
+      totalReviews: unifiedReviews.length,
+    },
+    clusters: buildClustersFromReviews(unifiedReviews, locale),
+    timelineData: buildTimelineFromReviews(unifiedReviews, base.alerts),
+    communityPulse: mapped.communityPulse ?? undefined,
+    communityThreads: mapped.communityThreads,
+    sourceComparison: mapped.sourceComparison ?? undefined,
+    communityDataLoaded: true,
   }
 }
 
@@ -154,7 +195,7 @@ function writeCachedDashboard(scope: string, data: DashboardData): void {
   }
 }
 
-export function useDashboardData() {
+export function useDashboardData(sourceFilter: FeedbackSource | null = null) {
   const searchParams = useSearchParams()
   const searchRunId = searchParams.get("run_id")
   const { locale, dateFilter, resolvedDateRange } = useDashboardPreferences()
@@ -221,13 +262,16 @@ export function useDashboardData() {
 
     try {
       const artifact = await fetchRunArtifact(targetRunId, requestFilters)
-      const mapped = mapRunArtifactToDashboard(artifact, requestFilters.locale as "en" | "ru")
-      writeCachedDashboard(scope, mapped)
+      const locale = requestFilters.locale as "en" | "ru"
+      const mapped = mapRunArtifactToDashboard(artifact, locale)
+      const communityPayload = await fetchCommunityDataFile(mapped.packageName).catch(() => null)
+      const merged = mergeCommunityIntoDashboard(mapped, locale, communityPayload)
+      writeCachedDashboard(scope, merged)
       if (typeof window !== "undefined") {
-        localStorage.setItem(TAB_RUN_ID_KEY, mapped.runId || targetRunId)
-        localStorage.setItem(LEGACY_RUN_ID_KEY, mapped.runId || targetRunId)
+        localStorage.setItem(TAB_RUN_ID_KEY, merged.runId || targetRunId)
+        localStorage.setItem(LEGACY_RUN_ID_KEY, merged.runId || targetRunId)
       }
-      setState({ data: mapped, source: "api", loading: false, error: null })
+      setState({ data: merged, source: "api", loading: false, error: null })
       void refreshRunHistory()
     } catch (error) {
       // If the specific run was not found, fall back to the latest available run
@@ -237,17 +281,20 @@ export function useDashboardData() {
           setWarning("run_not_found")
           try {
             const fallbackArtifact = await fetchRunArtifact(latestRunId, requestFilters)
+            const locale = requestFilters.locale as "en" | "ru"
             const fallbackMapped = mapRunArtifactToDashboard(
               fallbackArtifact,
-              requestFilters.locale as "en" | "ru",
+              locale,
             )
+            const fallbackCommunity = await fetchCommunityDataFile(fallbackMapped.packageName).catch(() => null)
+            const fallbackMerged = mergeCommunityIntoDashboard(fallbackMapped, locale, fallbackCommunity)
             const fallbackScope = buildScope(latestRunId, requestFilters)
-            writeCachedDashboard(fallbackScope, fallbackMapped)
+            writeCachedDashboard(fallbackScope, fallbackMerged)
             if (typeof window !== "undefined") {
               localStorage.setItem(TAB_RUN_ID_KEY, latestRunId)
               localStorage.setItem(LEGACY_RUN_ID_KEY, latestRunId)
             }
-            setState({ data: fallbackMapped, source: "api", loading: false, error: null })
+            setState({ data: fallbackMerged, source: "api", loading: false, error: null })
             void refreshRunHistory()
             return
           } catch {
@@ -283,8 +330,8 @@ export function useDashboardData() {
   }, [load])
 
   const filteredData = useMemo(() => {
-    return filterDashboardDataByDate(state.data, resolvedDateRange)
-  }, [resolvedDateRange, state.data])
+    return filterDashboardDataByDate(state.data, resolvedDateRange, sourceFilter)
+  }, [resolvedDateRange, sourceFilter, state.data])
 
   const totalAnalyzedReviews = state.data.reviews.length
 

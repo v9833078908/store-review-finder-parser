@@ -1,0 +1,63 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Manrope:wght@400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-display: "Outfit", sans-serif;
+  --font-body: "Manrope", sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+
+  --color-bg-base: #09090B;
+  --color-bg-elevated: #18181B;
+  --color-bg-surface: #27272A;
+
+  --color-border-default: #3F3F46;
+  --color-border-subtle: #27272A;
+
+  --color-text-primary: #FAFAFA;
+  --color-text-secondary: #A1A1AA;
+  --color-text-muted: #71717A;
+
+  --color-accent: #06B6D4;
+  --color-accent-hover: #22D3EE;
+  --color-accent-muted: #083344;
+
+  --color-positive: #22C55E;
+  --color-negative: #EF4444;
+  --color-warning: #F59E0B;
+
+  --color-ai-start: #6366F1;
+  --color-ai-end: #8B5CF6;
+
+  --color-glass-bg: rgba(255, 255, 255, 0.05);
+  --color-glass-border: rgba(255, 255, 255, 0.1);
+}
+
+@layer base {
+  body {
+    @apply bg-bg-base text-text-primary font-body antialiased selection:bg-accent/30 selection:text-accent-hover;
+  }
+}
+
+@layer utilities {
+  .glass-panel {
+    @apply bg-glass-bg border border-glass-border backdrop-blur-[16px];
+  }
+  .ai-border {
+    position: relative;
+  }
+  .ai-border::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(to right, var(--color-ai-start), var(--color-ai-end));
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+  .ai-text {
+    @apply bg-gradient-to-r from-ai-start to-ai-end bg-clip-text text-transparent;
+  }
+}

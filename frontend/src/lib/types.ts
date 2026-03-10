@@ -12,10 +12,12 @@ export interface Product {
 export type ReviewCategory = "bug" | "feature" | "praise" | "noise" | "complaint";
 export type Sentiment = "positive" | "negative" | "mixed" | "neutral";
 export type Severity = 1 | 2 | 3 | 4 | 5;
+export type FeedbackSource = "google_play" | "community";
 
 export interface Review {
   id: string;
   productId: string;
+  source: FeedbackSource;
   rating: number;
   text: string;
   lang: string;
@@ -29,6 +31,9 @@ export interface Review {
   severity: Severity;
   hasReply: boolean;
   createdAt: string; // ISO date
+  communityTopic?: string;
+  communityUsername?: string;
+  communityMsgId?: string;
 }
 
 // ── Clusters ──
@@ -112,4 +117,59 @@ export interface ResponseStats {
   unansweredPercent: number;
   unansweredNegatives: number;
   totalUnanswered: number;
+}
+
+export interface CommunityPulseDailyVolumePoint {
+  date: string;
+  count: number;
+}
+
+export interface CommunityTopicCount {
+  topic: string;
+  count: number;
+}
+
+export interface CommunityPulseStats {
+  totalMessages: number;
+  signalCount: number;
+  noiseCount: number;
+  signalRatio: number;
+  topTopics: CommunityTopicCount[];
+  sentimentBreakdown: {
+    positive: number;
+    negative: number;
+    neutral: number;
+    mixed: number;
+  };
+  dailyVolume7d: CommunityPulseDailyVolumePoint[];
+}
+
+export interface CommunityThread {
+  id: string;
+  topic: string;
+  date: string;
+  messageCount: number;
+  negativeCount: number;
+  summary: string;
+  sentiment: Sentiment;
+}
+
+export interface SourceComparisonItem {
+  category: ReviewCategory;
+  googlePlayCount: number;
+  communityCount: number;
+}
+
+export interface SourceSentimentGap {
+  topic: string;
+  googlePlaySentiment: Sentiment;
+  communitySentiment: Sentiment;
+}
+
+export interface SourceComparisonStats {
+  byCategory: SourceComparisonItem[];
+  confirmedIssues: string[];
+  storeBlindSpots: string[];
+  chatBlindSpots: string[];
+  sentimentGaps: SourceSentimentGap[];
 }

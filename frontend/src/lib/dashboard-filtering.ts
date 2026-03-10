@@ -1,6 +1,7 @@
 import type { DashboardData } from "@/lib/dashboard-types"
-import type { Alert, Cluster, Review } from "@/lib/types"
+import type { Alert, Cluster, FeedbackSource, Review, TimelinePoint } from "@/lib/types"
 import { buildDerivedReportLayers } from "@/lib/runtime-mapper"
+import { buildCommunityPulseFromReviews, buildCommunityThreadsFromReviews, buildSourceComparison } from "@/lib/community-mapper"
 import {
   isDateInRange,
   isMoscowDateKeyInRange,
@@ -133,8 +134,39 @@ function deriveIssueStats(clusters: Cluster[], alerts: Alert[]) {
   }
 }
 
-export function filterDashboardDataByDate(data: DashboardData, range: ResolvedDateRange): DashboardData {
-  const filteredReviews = data.reviews
+function buildTimelineFromReviews(reviews: Review[], alerts: Alert[]): TimelinePoint[] {
+  const parsedDates = reviews
+    .map((review) => safeDate(review.createdAt))
+    .filter((value): value is Date => value !== null)
+  const latest = parsedDates.length
+    ? new Date(Math.max(...parsedDates.map((value) => value.getTime())))
+    : new Date()
+  const dayMs = 24 * 60 * 60 * 1000
+
+  return Array.from({ length: 7 }, (_, index) => {
+    const day = new Date(latest.getTime() - (6 - index) * dayMs)
+    const key = day.toISOString().slice(0, 10)
+    const dayReviews = reviews.filter((review) => review.createdAt.slice(0, 10) === key)
+    const dayAlerts = alerts.filter((alert) => alert.detectedAt.slice(0, 10) === key)
+
+    return {
+      date: key,
+      negativeReviews: dayReviews.filter((review) => review.sentiment === "negative").length,
+      bugReports: dayReviews.filter((review) => review.category === "bug").length,
+      alerts: dayAlerts.length,
+      totalReviews: dayReviews.length,
+    }
+  })
+}
+
+export function filterDashboardDataByDate(
+  data: DashboardData,
+  range: ResolvedDateRange,
+  source: FeedbackSource | null = null,
+): DashboardData {
+  const sourceScopedReviews = source ? data.reviews.filter((review) => review.source === source) : data.reviews
+
+  const filteredReviews = sourceScopedReviews
     .filter((review) => inRange(review, range))
     .sort((left, right) => {
       const rightTime = safeDate(right.createdAt)?.getTime() ?? 0
@@ -142,7 +174,7 @@ export function filterDashboardDataByDate(data: DashboardData, range: ResolvedDa
       return rightTime - leftTime
     })
   const filteredReviewIds = new Set(filteredReviews.map((review) => review.id))
-  const reviewById = new Map(data.reviews.map((review) => [review.id, review]))
+  const reviewById = new Map(sourceScopedReviews.map((review) => [review.id, review]))
 
   const filteredClusters = data.clusters
     .map((cluster) => {
@@ -161,16 +193,19 @@ export function filterDashboardDataByDate(data: DashboardData, range: ResolvedDa
       return right.volume7d - left.volume7d
     })
 
-  const filteredAlerts = data.alerts.filter((alert) => isDateInRange(alert.detectedAt, range))
+  const scopedAlerts = source === "community" ? [] : data.alerts
+  const filteredAlerts = scopedAlerts.filter((alert) => isDateInRange(alert.detectedAt, range))
   const activeClusterIds = new Set(filteredClusters.map((cluster) => cluster.id))
 
   const filteredActions = data.actionItems.filter(
     (action) => !action.relatedClusterId || activeClusterIds.has(action.relatedClusterId),
   )
 
-  const filteredTimeline = data.timelineData.filter((point) => isMoscowDateKeyInRange(point.date, range))
+  const filteredTimeline = source
+    ? buildTimelineFromReviews(filteredReviews, filteredAlerts)
+    : data.timelineData.filter((point) => isMoscowDateKeyInRange(point.date, range))
 
-  const reputationStats = deriveReputationStats(data.reviews, filteredReviews, range)
+  const reputationStats = deriveReputationStats(sourceScopedReviews, filteredReviews, range)
   const responseStats = deriveResponseStats(filteredReviews)
   const issueStats = deriveIssueStats(filteredClusters, filteredAlerts)
   const reportLayers = buildDerivedReportLayers(
@@ -179,6 +214,25 @@ export function filterDashboardDataByDate(data: DashboardData, range: ResolvedDa
     filteredClusters,
     filteredActions,
   )
+  const filteredGooglePlayReviews = filteredReviews.filter((review) => review.source === "google_play")
+  const filteredCommunityReviews = filteredReviews.filter((review) => review.source === "community")
+  const communityPulse =
+    data.communityDataLoaded && source !== "google_play"
+      ? buildCommunityPulseFromReviews(
+        filteredCommunityReviews,
+        source === null
+          ? Math.max(filteredCommunityReviews.length, data.communityPulse?.totalMessages || 0)
+          : filteredCommunityReviews.length,
+      )
+      : undefined
+  const communityThreads =
+    data.communityDataLoaded && source !== "google_play"
+      ? buildCommunityThreadsFromReviews(filteredCommunityReviews)
+      : []
+  const sourceComparison =
+    data.communityDataLoaded && source === null
+      ? buildSourceComparison(filteredGooglePlayReviews, filteredCommunityReviews)
+      : undefined
 
   return {
     ...data,
@@ -196,5 +250,8 @@ export function filterDashboardDataByDate(data: DashboardData, range: ResolvedDa
     alerts: filteredAlerts,
     actionItems: filteredActions,
     reportLayers,
+    communityPulse,
+    communityThreads,
+    sourceComparison,
   }
 }

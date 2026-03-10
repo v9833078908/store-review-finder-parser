@@ -54,6 +54,9 @@ function labelForWidget(widget: DashboardWidgetKey, locale: "en" | "ru"): string
     timeline: "Таймлайн",
     top_clusters: "Топ-кластеры",
     action_board: "Action Board",
+    community_pulse: "Пульс сообщества",
+    source_comparison: "Сравнение источников",
+    community_threads: "Горячие треды",
     layered_report: "Слои отчета",
   }
   const en: Record<DashboardWidgetKey, string> = {
@@ -61,6 +64,9 @@ function labelForWidget(widget: DashboardWidgetKey, locale: "en" | "ru"): string
     timeline: "Timeline",
     top_clusters: "Top clusters",
     action_board: "Action board",
+    community_pulse: "Community pulse",
+    source_comparison: "Source comparison",
+    community_threads: "Community threads",
     layered_report: "Layered report",
   }
   return locale === "ru" ? ru[widget] : en[widget]

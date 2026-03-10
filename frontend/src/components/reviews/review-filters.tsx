@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/select"
 import { X } from "lucide-react"
 import type { ReviewFilters } from "@/hooks/use-filters"
-import type { ReviewCategory } from "@/lib/types"
+import type { FeedbackSource, ReviewCategory } from "@/lib/types"
 import { useDashboardPreferences } from "@/lib/dashboard-preferences"
 import { formatCategory, formatLanguageCode, getUiText } from "@/lib/i18n"
 
@@ -20,6 +20,7 @@ interface ReviewFiltersProps {
     langs: string[]
     countries: string[]
     versions: string[]
+    sources: FeedbackSource[]
   }
   onUpdateFilter: (key: keyof ReviewFilters, value: ReviewFilters[keyof ReviewFilters]) => void
   onClearFilters: () => void
@@ -39,6 +40,24 @@ export function ReviewFilters({
 
   return (
     <div className="flex flex-wrap items-center gap-3">
+      <Select
+        value={filters.source ?? "all"}
+        onValueChange={(v) => onUpdateFilter("source", v === "all" ? null : (v as FeedbackSource))}
+      >
+        <SelectTrigger className="w-[180px]">
+          <SelectValue placeholder={text.reviewFilters.source} />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">{text.reviewFilters.allSources}</SelectItem>
+          {options.sources.includes("google_play") && (
+            <SelectItem value="google_play">{text.reviewFilters.sourceGooglePlay}</SelectItem>
+          )}
+          {options.sources.includes("community") && (
+            <SelectItem value="community">{text.reviewFilters.sourceCommunity}</SelectItem>
+          )}
+        </SelectContent>
+      </Select>
+
       <Select
         value={filters.rating?.toString() ?? "all"}
         onValueChange={(v) => onUpdateFilter("rating", v === "all" ? null : Number(v))}

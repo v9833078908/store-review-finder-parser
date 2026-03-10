@@ -4,19 +4,22 @@ import Link from "next/link"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { ArrowRight } from "lucide-react"
-import type { Cluster } from "@/lib/types"
+import type { Cluster, Review } from "@/lib/types"
 import { trendArrow, trendColor } from "@/lib/utils"
 import { useDashboardPreferences } from "@/lib/dashboard-preferences"
 import { getUiText } from "@/lib/i18n"
+import { useMemo } from "react"
 
 interface TopClustersProps {
   clusters: Cluster[]
+  reviews: Review[]
 }
 
-export function TopClusters({ clusters }: TopClustersProps) {
+export function TopClusters({ clusters, reviews }: TopClustersProps) {
   const { locale } = useDashboardPreferences()
   const text = getUiText(locale)
   const topFive = clusters.slice(0, 5)
+  const reviewsById = useMemo(() => new Map(reviews.map((review) => [review.id, review])), [reviews])
 
   return (
     <Card>
@@ -27,6 +30,18 @@ export function TopClusters({ clusters }: TopClustersProps) {
       <CardContent>
         <div className="space-y-2">
           {topFive.map((cluster) => {
+            const sourceCounts = cluster.reviewIds.reduce(
+              (acc, reviewId) => {
+                const review = reviewsById.get(reviewId)
+                if (review?.source === "community") {
+                  acc.tg += 1
+                } else if (review?.source === "google_play") {
+                  acc.gp += 1
+                }
+                return acc
+              },
+              { gp: 0, tg: 0 },
+            )
             const severityColors: Record<number, { bar: string; bg: string; text: string }> = {
               5: { bar: "bg-red-500",    bg: "bg-red-50/60",    text: "text-red-700"    },
               4: { bar: "bg-orange-400", bg: "bg-orange-50/40", text: "text-orange-700" },
@@ -61,6 +76,7 @@ export function TopClusters({ clusters }: TopClustersProps) {
                       {trendArrow(cluster.trend)} {Math.abs(cluster.trend)}%
                     </span>
                     <span>★ {cluster.ratingAvg.toFixed(1)}</span>
+                    <span>GP: {sourceCounts.gp} · TG: {sourceCounts.tg}</span>
                     <span>{cluster.topCountries.slice(0, 2).join(", ")} · {cluster.topLangs.slice(0, 2).join(", ")}</span>
                   </div>
                 </div>

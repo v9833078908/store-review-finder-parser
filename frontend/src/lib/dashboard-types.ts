@@ -2,11 +2,14 @@ import type {
   ActionItem,
   Alert,
   Cluster,
+  CommunityPulseStats,
+  CommunityThread,
   IssueStats,
   Product,
   ReputationStats,
   ResponseStats,
   Review,
+  SourceComparisonStats,
   TimelinePoint,
 } from "@/lib/types"
 import type { ReportLayerTab } from "@/lib/dashboard-config"
@@ -72,6 +75,10 @@ export interface DashboardData {
   reportLayers: ReportLayers
   executiveSummary?: string
   markdown?: string
+  communityPulse?: CommunityPulseStats
+  communityThreads?: CommunityThread[]
+  sourceComparison?: SourceComparisonStats
+  communityDataLoaded: boolean
   lastUpdated: string
   source: DashboardDataSource
 }

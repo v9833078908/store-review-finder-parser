@@ -224,6 +224,7 @@ function buildReviews(artifact: RunArtifact): Review[] {
     return {
       id: String(item.review_id || `review-${index}`),
       productId: slugify(artifact.package_name || artifact.app_name || "app"),
+      source: "google_play" as const,
       rating: Number(item.rating || 0),
       text: String(item.text || ""),
       lang: String(item.original_lang || item.lang || (artifact.langs && artifact.langs[0]) || "en"),
@@ -324,6 +325,10 @@ function buildClusters(
   return { clusters, clusterBySubcategory }
 }
 
+export function buildClustersFromReviews(reviews: Review[], locale: SupportedLocale): Cluster[] {
+  return buildClusters(reviews, locale).clusters
+}
+
 function buildAlerts(
   artifact: RunArtifact,
   clusterBySubcategory: Map<string, string>,
@@ -415,6 +420,10 @@ function buildTimeline(
   }
 
   return points
+}
+
+export function buildTimelineFromReviews(reviews: Review[], alerts: Alert[]): TimelinePoint[] {
+  return buildTimeline(reviews, alerts, undefined, undefined)
 }
 
 function importanceFromCluster(cluster: Cluster): number {
@@ -929,6 +938,7 @@ export function mapRunArtifactToDashboard(
     reportLayers,
     executiveSummary: extractExecutiveSummary(artifact),
     markdown: artifact.synthesis_markdown || artifact.markdown || undefined,
+    communityDataLoaded: false,
     lastUpdated: artifact.saved_at || artifact.fetched_at || new Date().toISOString(),
     source: "api",
   }

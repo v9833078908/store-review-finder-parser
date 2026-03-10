@@ -114,7 +114,46 @@ export interface UiText {
     rationale: string
     importance: string
   }
+  sourceFilter: {
+    label: string
+    all: string
+    store: string
+    community: string
+  }
+  communityPulse: {
+    title: string
+    description: string
+    signalRatio: string
+    topTopics: string
+    sentiment: string
+    dailyVolume: string
+    signals: string
+    messages: string
+  }
+  sourceComparison: {
+    title: string
+    description: string
+    chartDescription: string
+    googlePlay: string
+    community: string
+    confirmedIssues: string
+    storeBlindSpots: string
+    chatBlindSpots: string
+    sentimentGaps: string
+    noData: string
+  }
+  communityThreads: {
+    title: string
+    description: string
+    messages: string
+    negative: string
+    noThreads: string
+  }
   reviewFilters: {
+    source: string
+    allSources: string
+    sourceGooglePlay: string
+    sourceCommunity: string
     rating: string
     allRatings: string
     language: string
@@ -133,6 +172,8 @@ export interface UiText {
     date: string
     text: string
     originalLang: string
+    source: string
+    username: string
     sentiment: string
     severity: string
     category: string
@@ -278,7 +319,46 @@ const EN_TEXT: UiText = {
     rationale: "Rationale",
     importance: "Importance",
   },
+  sourceFilter: {
+    label: "Source",
+    all: "All",
+    store: "Store (GP)",
+    community: "Community (TG)",
+  },
+  communityPulse: {
+    title: "Community Pulse",
+    description: "Telegram signal intensity, sentiment, and topic focus",
+    signalRatio: "Signal Ratio",
+    topTopics: "Top Topics",
+    sentiment: "Sentiment",
+    dailyVolume: "Daily Volume (7d)",
+    signals: "signals",
+    messages: "messages",
+  },
+  sourceComparison: {
+    title: "Source Comparison",
+    description: "Cross-source category volume and blind-spot analysis",
+    chartDescription: "Google Play vs Telegram by category",
+    googlePlay: "Google Play",
+    community: "Community",
+    confirmedIssues: "Confirmed Issues",
+    storeBlindSpots: "Store Blind Spots",
+    chatBlindSpots: "Chat Blind Spots",
+    sentimentGaps: "Sentiment Gaps",
+    noData: "No data available",
+  },
+  communityThreads: {
+    title: "Community Threads",
+    description: "Top hot discussion threads by topic and day",
+    messages: "messages",
+    negative: "negative",
+    noThreads: "No thread highlights in the selected period.",
+  },
   reviewFilters: {
+    source: "Source",
+    allSources: "All Sources",
+    sourceGooglePlay: "Google Play",
+    sourceCommunity: "Community",
     rating: "Rating",
     allRatings: "All Ratings",
     language: "Original Language",
@@ -297,6 +377,8 @@ const EN_TEXT: UiText = {
     date: "Date",
     text: "Text",
     originalLang: "Original Lang",
+    source: "Source",
+    username: "Username",
     sentiment: "Sentiment",
     severity: "Severity",
     category: "Category",
@@ -442,7 +524,46 @@ const RU_TEXT: UiText = {
     rationale: "Обоснование",
     importance: "Важность",
   },
+  sourceFilter: {
+    label: "Источник",
+    all: "Все",
+    store: "Стор (GP)",
+    community: "Сообщество (TG)",
+  },
+  communityPulse: {
+    title: "Пульс Сообщества",
+    description: "Интенсивность сигналов Telegram, тональность и фокус тем",
+    signalRatio: "Доля сигналов",
+    topTopics: "Топ Темы",
+    sentiment: "Тональность",
+    dailyVolume: "Дневной объём (7д)",
+    signals: "сигналов",
+    messages: "сообщений",
+  },
+  sourceComparison: {
+    title: "Сравнение Источников",
+    description: "Объём по категориям и анализ blind spots между GP и TG",
+    chartDescription: "Google Play против Telegram по категориям",
+    googlePlay: "Google Play",
+    community: "Сообщество",
+    confirmedIssues: "Подтверждённые Проблемы",
+    storeBlindSpots: "Слепые зоны стора",
+    chatBlindSpots: "Слепые зоны чата",
+    sentimentGaps: "Разрывы тональности",
+    noData: "Данные отсутствуют",
+  },
+  communityThreads: {
+    title: "Треды Сообщества",
+    description: "Топ горячих обсуждений по теме и дню",
+    messages: "сообщений",
+    negative: "негативных",
+    noThreads: "Нет выделенных тредов за выбранный период.",
+  },
   reviewFilters: {
+    source: "Источник",
+    allSources: "Все источники",
+    sourceGooglePlay: "Google Play",
+    sourceCommunity: "Сообщество",
     rating: "Рейтинг",
     allRatings: "Все рейтинги",
     language: "Язык оригинала",
@@ -461,6 +582,8 @@ const RU_TEXT: UiText = {
     date: "Дата",
     text: "Текст",
     originalLang: "Ориг. яз",
+    source: "Источник",
+    username: "Пользователь",
     sentiment: "Тональность",
     severity: "Серьёзность",
     category: "Категория",
@@ -628,6 +751,18 @@ const THEME_LABELS: Record<SupportedLocale, Record<string, string>> = {
     social: "social",
     customization: "customization",
     ui_improvement: "ui improvement",
+    bugs: "bugs",
+    feature_request: "feature request",
+    content_update: "content update",
+    ships: "ships",
+    events: "events",
+    progression: "progression",
+    game_balance: "game balance",
+    modules: "modules",
+    pilots: "pilots",
+    support: "support",
+    ux: "UX",
+    community: "community",
     other: "other",
     general: "general",
   },
@@ -645,6 +780,18 @@ const THEME_LABELS: Record<SupportedLocale, Record<string, string>> = {
     social: "социальные функции",
     customization: "кастомизация",
     ui_improvement: "улучшение UI",
+    bugs: "баги",
+    feature_request: "запрос фичи",
+    content_update: "обновление контента",
+    ships: "корабли",
+    events: "ивенты",
+    progression: "прогрессия",
+    game_balance: "баланс игры",
+    modules: "модули",
+    pilots: "пилоты",
+    support: "поддержка",
+    ux: "UX",
+    community: "сообщество",
     other: "другое",
     general: "общее",
   },

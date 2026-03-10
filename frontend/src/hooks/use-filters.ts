@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useMemo } from "react"
-import type { Review, ReviewCategory } from "@/lib/types"
+import type { FeedbackSource, Review, ReviewCategory } from "@/lib/types"
 
 export interface ReviewFilters {
   rating: number | null
@@ -9,6 +9,7 @@ export interface ReviewFilters {
   country: string | null
   version: string | null
   category: ReviewCategory | null
+  source: FeedbackSource | null
 }
 
 export function useFilters(reviews: Review[]) {
@@ -18,6 +19,7 @@ export function useFilters(reviews: Review[]) {
     country: null,
     version: null,
     category: null,
+    source: null,
   })
 
   const filtered = useMemo(() => {
@@ -27,6 +29,7 @@ export function useFilters(reviews: Review[]) {
       if (filters.country && review.country !== filters.country) return false
       if (filters.version && review.appVersion !== filters.version) return false
       if (filters.category && review.category !== filters.category) return false
+      if (filters.source && review.source !== filters.source) return false
       return true
     })
   }, [reviews, filters])
@@ -39,10 +42,11 @@ export function useFilters(reviews: Review[]) {
     setFilters({
       rating: null,
       lang: null,
-      country: null,
-      version: null,
-      category: null,
-    })
+        country: null,
+        version: null,
+        category: null,
+        source: null,
+      })
   }
 
   // Get unique values for filter options
@@ -51,6 +55,7 @@ export function useFilters(reviews: Review[]) {
       langs: Array.from(new Set(reviews.map((r) => r.lang))).sort(),
       countries: Array.from(new Set(reviews.map((r) => r.country))).sort(),
       versions: Array.from(new Set(reviews.map((r) => r.appVersion))).sort(),
+      sources: Array.from(new Set(reviews.map((r) => r.source))).sort(),
     }),
     [reviews]
   )

@@ -6,6 +6,10 @@ import { StatusCards } from "@/components/command-center/status-cards"
 import { TimelineChart } from "@/components/command-center/timeline-chart"
 import { TopClusters } from "@/components/command-center/top-clusters"
 import { ActionBoard } from "@/components/command-center/action-board"
+import { CommunityPulse } from "@/components/command-center/community-pulse"
+import { SourceComparison } from "@/components/command-center/source-comparison"
+import { CommunityThreads } from "@/components/command-center/community-threads"
+import { SourceFilterToggle } from "@/components/command-center/source-filter-toggle"
 
 import { DashboardCustomizer } from "@/components/command-center/dashboard-customizer"
 import { useDashboardData } from "@/hooks/use-dashboard-data"
@@ -17,9 +21,11 @@ import {
   type DashboardConfig,
   type DashboardRoleProfile,
 } from "@/lib/dashboard-config"
+import type { FeedbackSource } from "@/lib/types"
 
 export default function CommandCenterPage() {
-  const { data, loading, error, source } = useDashboardData()
+  const [sourceFilter, setSourceFilter] = useState<FeedbackSource | null>(null)
+  const { data, loading, error, source } = useDashboardData(sourceFilter)
   const { locale, loadDashboardConfig, saveDashboardConfig } = useDashboardPreferences()
   const text = getUiText(locale)
   const sourceLabel = source === "api" ? text.common.sourceApi : source === "cache" ? text.common.sourceCache : text.common.sourceMock
@@ -52,6 +58,25 @@ export default function CommandCenterPage() {
   }, [loadDashboardConfig, packageName, roleProfile])
 
   const visibleWidgets = useMemo(() => new Set(config.visible_widgets), [config.visible_widgets])
+  const showCommunityData = data.communityDataLoaded
+
+  const showCommunityPulse =
+    showCommunityData &&
+    sourceFilter !== "google_play" &&
+    visibleWidgets.has("community_pulse") &&
+    Boolean(data.communityPulse)
+
+  const showSourceComparison =
+    showCommunityData &&
+    sourceFilter === null &&
+    visibleWidgets.has("source_comparison") &&
+    Boolean(data.sourceComparison)
+
+  const showCommunityThreads =
+    showCommunityData &&
+    sourceFilter !== "google_play" &&
+    visibleWidgets.has("community_threads") &&
+    Boolean(data.communityThreads?.length)
 
   if (error?.startsWith("No active run")) {
     return (
@@ -66,6 +91,17 @@ export default function CommandCenterPage() {
       </div>
     )
   }
+
+  const showTopClusters = visibleWidgets.has("top_clusters")
+  const showActionBoard = visibleWidgets.has("action_board")
+
+  const communityThreadsPanel = showCommunityThreads ? <CommunityThreads threads={data.communityThreads || []} /> : null
+
+  const boardGridColumns = showCommunityThreads
+    ? "xl:grid-cols-3"
+    : showTopClusters && showActionBoard
+      ? "xl:grid-cols-2"
+      : "xl:grid-cols-1"
 
   return (
     <div className="flex flex-col gap-6 p-6">
@@ -94,6 +130,10 @@ export default function CommandCenterPage() {
         />
       </div>
 
+      {showCommunityData && (
+        <SourceFilterToggle value={sourceFilter} onChange={setSourceFilter} />
+      )}
+
       {loading && (
         <div className="text-sm text-muted-foreground">{text.common.loadingDashboard}</div>
       )}
@@ -110,10 +150,9 @@ export default function CommandCenterPage() {
 
       {data.executiveSummary && (
         <div className="relative overflow-hidden rounded-xl border border-amber-200 bg-amber-50/60 px-6 py-5 shadow-sm">
-          {/* Left accent stripe */}
           <div className="absolute left-0 top-0 h-full w-1 rounded-l-xl bg-amber-400" />
-          <div className="flex items-center gap-2 mb-3">
-            <span className="font-mono text-[10px] font-semibold tracking-[0.2em] uppercase text-amber-600">
+          <div className="mb-3 flex items-center gap-2">
+            <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.2em] text-amber-600">
               Executive Brief
             </span>
             <div className="h-px flex-1 bg-amber-200" />
@@ -124,23 +163,37 @@ export default function CommandCenterPage() {
         </div>
       )}
 
-      {visibleWidgets.has("status_cards") && (
-        <StatusCards
-          reputation={data.reputationStats}
-          issues={data.issueStats}
-          response={data.responseStats}
-          kpiSet={config.kpi_set}
-          filteredReviewCount={data.reviews.length}
-          countriesFetched={data.countriesFetched}
-        />
+      {(visibleWidgets.has("status_cards") || showCommunityPulse) && (
+        <div className={`grid gap-4 ${visibleWidgets.has("status_cards") && showCommunityPulse ? "xl:grid-cols-4" : "xl:grid-cols-1"}`}>
+          {visibleWidgets.has("status_cards") && (
+            <div className={showCommunityPulse ? "xl:col-span-3" : undefined}>
+              <StatusCards
+                reputation={data.reputationStats}
+                issues={data.issueStats}
+                response={data.responseStats}
+                kpiSet={config.kpi_set}
+                filteredReviewCount={data.reviews.length}
+                countriesFetched={data.countriesFetched}
+              />
+            </div>
+          )}
+          {showCommunityPulse && data.communityPulse && (
+            <CommunityPulse stats={data.communityPulse} />
+          )}
+        </div>
       )}
 
       {visibleWidgets.has("timeline") && <TimelineChart data={data.timelineData} />}
 
-      {(visibleWidgets.has("top_clusters") || visibleWidgets.has("action_board")) && (
-        <div className="grid gap-6 lg:grid-cols-2">
-          {visibleWidgets.has("top_clusters") && <TopClusters clusters={data.clusters} />}
-          {visibleWidgets.has("action_board") && <ActionBoard actions={data.actionItems} />}
+      {showSourceComparison && data.sourceComparison && (
+        <SourceComparison comparison={data.sourceComparison} />
+      )}
+
+      {(showTopClusters || showActionBoard || showCommunityThreads) && (
+        <div className={`grid gap-6 ${boardGridColumns}`}>
+          {showTopClusters && <TopClusters clusters={data.clusters} reviews={data.reviews} />}
+          {showActionBoard && <ActionBoard actions={data.actionItems} />}
+          {communityThreadsPanel}
         </div>
       )}
 

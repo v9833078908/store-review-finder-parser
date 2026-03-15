@@ -14,6 +14,7 @@ import type { DatePreset } from "@/lib/date-filters"
 import { listAllRegions } from "@/lib/regions"
 
 type ScanState = "idle" | "scanning" | "done" | "error"
+type ReportStore = "google_play" | "app_store"
 
 function resolveErrorMessage(payload: unknown): string {
   if (!payload || typeof payload !== "object") return "Resolve request failed"
@@ -31,6 +32,7 @@ export default function SearchAppPage() {
   const [errors, setErrors] = useState<string[]>([])
   const [lastScanParams, setLastScanParams] = useState<ScanParams | null>(null)
 
+  const [reportStore, setReportStore] = useState<ReportStore>("google_play")
   const [playInput, setPlayInput] = useState("")
   const [reportCountry, setReportCountry] = useState("us")
   const [reportPeriod, setReportPeriod] = useState<DatePreset>("14d")
@@ -116,7 +118,11 @@ export default function SearchAppPage() {
 
   const resolveInput = async () => {
     if (!playInput.trim()) {
-      setResolveError("Paste Google Play URL or package first")
+      setResolveError(reportStore === "app_store" ? "Enter App Store numeric app_id first" : "Paste Google Play URL or package first")
+      return
+    }
+    if (reportStore === "app_store" && !/^\d+$/.test(playInput.trim())) {
+      setResolveError("App Store input must be a numeric app_id.")
       return
     }
     if (!isCountryValid) {
@@ -134,12 +140,17 @@ export default function SearchAppPage() {
 
     try {
       const query = new URLSearchParams()
-      query.set("input", playInput.trim())
       query.set("country", normalizedReportCountry)
-      query.set("lang", "en")
-      query.set("limit", "5")
+      if (reportStore === "app_store") {
+        query.set("app_id", playInput.trim())
+      } else {
+        query.set("input", playInput.trim())
+        query.set("lang", "en")
+        query.set("limit", "5")
+      }
 
-      const response = await fetch(`/api/resolve/google-play?${query.toString()}`, {
+      const endpoint = reportStore === "app_store" ? "/api/resolve/app-store" : "/api/resolve/google-play"
+      const response = await fetch(`${endpoint}?${query.toString()}`, {
         method: "GET",
         cache: "no-store",
       })
@@ -168,6 +179,7 @@ export default function SearchAppPage() {
     if (!selectedCandidate || !isCountryValid || !isCustomWindowValid) return ""
     const query = new URLSearchParams()
     query.set("url", selectedCandidate.url)
+    query.set("store", reportStore)
     query.set("country", normalizedReportCountry)
     query.set("source", "direct_url")
     query.set("app_id", selectedCandidate.app_id)
@@ -178,7 +190,7 @@ export default function SearchAppPage() {
       query.set("to", reportCustomTo)
     }
     return `/report?${query.toString()}`
-  }, [isCountryValid, isCustomWindowValid, normalizedReportCountry, reportCustomFrom, reportCustomTo, reportPeriod, selectedCandidate])
+  }, [isCountryValid, isCustomWindowValid, normalizedReportCountry, reportCustomFrom, reportCustomTo, reportPeriod, reportStore, selectedCandidate])
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 to-background">
@@ -191,7 +203,7 @@ export default function SearchAppPage() {
           </div>
           <h1 className="mb-2 text-4xl font-extrabold tracking-tight">Review Analytics</h1>
           <p className="mx-auto max-w-xl text-muted-foreground">
-            Generate review analytics report for any Google Play game, or scan top charts to find games with low developer reply rates.
+            Generate review analytics report for Google Play or App Store games, or scan Google Play top charts to find games with low developer reply rates.
           </p>
         </header>
 
@@ -202,14 +214,40 @@ export default function SearchAppPage() {
             <div className="absolute left-0 top-0 h-full w-1.5 bg-amber-400" />
             <h2 className="mb-1 text-lg font-bold tracking-tight">Generate Report</h2>
             <p className="mb-5 text-sm text-muted-foreground">
-              Paste a Google Play URL or search query to analyze reviews
+              {reportStore === "app_store"
+                ? "Enter a numeric App Store app_id to analyze reviews"
+                : "Paste a Google Play URL or search query to analyze reviews"}
             </p>
+
+            <div className="mb-3 grid grid-cols-1 gap-3 sm:max-w-[220px]">
+              <Select
+                value={reportStore}
+                onValueChange={(value) => {
+                  setReportStore(value as ReportStore)
+                  setResolveData(null)
+                  setResolveError(null)
+                  setSelectedAppId("")
+                }}
+              >
+                <SelectTrigger className="h-11">
+                  <SelectValue placeholder="Store" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="google_play">Google Play</SelectItem>
+                  <SelectItem value="app_store">App Store</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
 
             <div className="grid grid-cols-1 gap-3 xl:grid-cols-[1fr_220px_160px_auto]">
               <Input
                 value={playInput}
                 onChange={(event) => setPlayInput(event.target.value)}
-                placeholder="https://play.google.com/store/search?q=pirate+ships&c=apps"
+                placeholder={
+                  reportStore === "app_store"
+                    ? "123456789"
+                    : "https://play.google.com/store/search?q=pirate+ships&c=apps"
+                }
                 className="h-11"
               />
 
@@ -271,7 +309,9 @@ export default function SearchAppPage() {
             )}
 
             <p className="mt-3 text-xs text-muted-foreground">
-              Google Play Store URLs only · Up to 1,000 newest reviews from the selected period and region
+              {reportStore === "app_store"
+                ? "Numeric App Store app_id only · Up to 500 newest reviews from the selected period and region"
+                : "Google Play Store URLs only · Up to 1,000 newest reviews from the selected period and region"}
             </p>
 
             {resolveError && <p className="mt-3 text-sm text-destructive">{resolveError}</p>}
@@ -329,7 +369,7 @@ export default function SearchAppPage() {
                       rel="noopener noreferrer"
                       className="text-sm text-amber-700 hover:underline"
                     >
-                      Open in Google Play
+                      {reportStore === "app_store" ? "Open in App Store" : "Open in Google Play"}
                     </a>
                   )}
                 </div>

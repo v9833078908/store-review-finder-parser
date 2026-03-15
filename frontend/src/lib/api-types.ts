@@ -71,6 +71,7 @@ export interface RunArtifact {
   run_id: string
   package_name: string
   app_name: string
+  store?: "google_play" | "app_store"
   fetched_at?: string
   saved_at?: string
   country?: string
@@ -105,6 +106,7 @@ export interface RunHistoryItem {
   run_id: string
   package_name: string
   app_name: string
+  store?: "google_play" | "app_store"
   saved_at?: string
   country?: string
   window_mode?: string

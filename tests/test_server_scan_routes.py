@@ -80,3 +80,48 @@ def test_resolve_google_play_contract(monkeypatch) -> None:
     payload = response.json()
     assert payload["recommended_app_id"] == "com.sample.game"
     assert payload["candidates"][0]["is_top1"] is True
+
+
+def test_resolve_app_store_contract(monkeypatch) -> None:
+    async def fake_resolve_app_store_input(app_id: str, country: str):
+        assert app_id == "123456789"
+        assert country == "us"
+        return {
+            "input_type": "app_store_id",
+            "recommended_app_id": "123456789",
+            "candidates": [
+                {
+                    "app_id": "123456789",
+                    "title": "Sample iOS Game",
+                    "url": "https://apps.apple.com/app/id123456789",
+                    "score": 4.7,
+                    "reviews_count": 42000,
+                    "is_top1": True,
+                }
+            ],
+        }
+
+    monkeypatch.setattr(server, "resolve_app_store_input", fake_resolve_app_store_input, raising=False)
+
+    client = TestClient(server.app)
+    response = client.get(
+        "/api/resolve/app-store",
+        params={"app_id": "123456789", "country": "us"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["recommended_app_id"] == "123456789"
+    assert payload["candidates"][0]["title"] == "Sample iOS Game"
+
+
+def test_resolve_app_store_rejects_non_numeric_input() -> None:
+    client = TestClient(server.app)
+    response = client.get(
+        "/api/resolve/app-store",
+        params={"app_id": "id123456789", "country": "us"},
+    )
+
+    assert response.status_code == 422
+    payload = response.json()
+    assert "numeric" in payload["detail"]

@@ -874,6 +874,7 @@ export function mapRunArtifactToDashboard(
   artifact: RunArtifact,
   locale: SupportedLocale = "en",
 ): DashboardData {
+  const platform = artifact.store || artifact.feedback_source || "google_play"
   const reviews = buildReviews(artifact).sort((left, right) => {
     return new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
   })
@@ -910,7 +911,7 @@ export function mapRunArtifactToDashboard(
       id: slugify(artifact.package_name || artifact.app_name || "app"),
       name: artifact.app_name || artifact.package_name || "Unknown app",
       packageId: artifact.package_name || "unknown.package",
-      platform: "google_play",
+      platform: platform === "app_store" ? "app_store" : "google_play",
       rating: Number(avgRating.toFixed(2)),
       totalReviews,
     },

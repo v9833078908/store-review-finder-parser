@@ -9,6 +9,7 @@ import server
 
 def test_report_sync_contract(monkeypatch) -> None:
     async def fake_generate_dashboard(**kwargs):
+        assert kwargs["store"] == "google_play"
         assert kwargs["source"] in {"direct_url", "catalog"}
         assert kwargs["country"] == "us"
         return {
@@ -85,6 +86,48 @@ def test_report_sync_contract_accepts_all_region(monkeypatch) -> None:
     assert response.status_code == 200
     payload = response.json()
     assert payload["run_id"] == "run-all"
+
+
+def test_report_sync_contract_accepts_app_store(monkeypatch) -> None:
+    async def fake_generate_dashboard(**kwargs):
+        assert kwargs["store"] == "app_store"
+        assert kwargs["selected_app_id"] == "123456789"
+        assert kwargs["country"] == "us"
+        return {
+            "run_id": "run-app-store",
+            "package_name": "123456789",
+            "app_name": "Sample iOS Game",
+            "report_path": "/tmp/report.md",
+            "artifact_path": "/tmp/run.json",
+            "markdown": "# Report",
+            "report_layers": {
+                "summary": {"title": "Summary", "narrative": "", "cards": [], "metrics": {}, "updated_at": "2026-03-12T00:00:00Z"},
+                "signals": {"title": "Signals", "narrative": "", "cards": [], "metrics": {}, "updated_at": "2026-03-12T00:00:00Z"},
+                "issues": {"title": "Issues", "narrative": "", "cards": [], "metrics": {}, "updated_at": "2026-03-12T00:00:00Z"},
+                "actions": {"title": "Actions", "narrative": "", "cards": [], "metrics": {}, "updated_at": "2026-03-12T00:00:00Z"},
+            },
+            "stats": {},
+            "category_counts": {},
+            "alerts_count": 0,
+        }
+
+    monkeypatch.setattr(server, "_generate_dashboard", fake_generate_dashboard)
+
+    client = TestClient(server.app)
+    response = client.get(
+        "/api/report/sync",
+        params={
+            "store": "app_store",
+            "url": "https://apps.apple.com/app/id123456789",
+            "country": "us",
+            "app_id": "123456789",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["run_id"] == "run-app-store"
+    assert payload["package_name"] == "123456789"
 
 
 def test_report_sse_contains_report_and_done(monkeypatch) -> None:

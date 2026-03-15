@@ -22,6 +22,7 @@ export default function ReportPage() {
 
   const request = useMemo(
     () => ({
+      store: (searchParams.get("store") as "google_play" | "app_store" | null) || "google_play",
       url: searchParams.get("url") || "",
       country: searchParams.get("country") || "",
       period:

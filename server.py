@@ -28,6 +28,7 @@ from pipeline import run_unified_pipeline
 from observability import init_observability, observe, shutdown_observability, update_current_trace
 from report_builder import build_unified_report
 from scraper import REGION_LANGUAGE_SWEEP, fetch_reviews
+from sources.app_store import APP_STORE_MAX_REVIEWS, fetch_app_store_reviews, resolve_app_store_input, validate_app_store_id
 from storage import list_run_artifacts, load_run_artifact, save_run_artifact
 from utils import log_event, safe_name
 from version_tracker import get_current_version, get_previous_version, update_version_history
@@ -43,6 +44,7 @@ PERIOD_DAYS = {
     "90d": 90,
 }
 REGION_CODE_PATTERN = re.compile(r"^[a-z]{2}$")
+APP_STORE_URL_PATTERN = re.compile(r"/id(?P<app_id>\d+)")
 ALL_REGION_CODE = "all"
 ALL_REGION_SWEEP = [
     "us",  # USA — largest English market
@@ -264,6 +266,7 @@ def _resolve_dashboard_params(
 
 
 async def _fetch_all_reviews(
+    store: str,
     package_name: str,
     fetch_countries: list[str],
     fetch_langs: list[str],
@@ -307,18 +310,28 @@ async def _fetch_all_reviews(
     async def _fetch_one_country(fetch_country: str) -> dict[str, Any]:
         async with sem:
             started = time.perf_counter()
-            payload = await asyncio.to_thread(
-                fetch_reviews,
-                package_name=package_name,
-                max_reviews=per_country_fetch_limit,
-                langs=fetch_langs,
-                country=fetch_country,
-                force_refresh=force_refresh,
-                cache_ttl=timedelta(hours=cache_ttl_hours),
-            )
+            if store == "app_store":
+                payload = await fetch_app_store_reviews(
+                    app_id=package_name,
+                    max_reviews=per_country_fetch_limit,
+                    country=fetch_country,
+                    force_refresh=force_refresh,
+                    cache_ttl=timedelta(hours=cache_ttl_hours),
+                )
+            else:
+                payload = await asyncio.to_thread(
+                    fetch_reviews,
+                    package_name=package_name,
+                    max_reviews=per_country_fetch_limit,
+                    langs=fetch_langs,
+                    country=fetch_country,
+                    force_refresh=force_refresh,
+                    cache_ttl=timedelta(hours=cache_ttl_hours),
+                )
             log_event(
                 "reviews_fetch_completed",
                 package_name=package_name,
+                store=store,
                 country=fetch_country,
                 reviews=len(payload.get("reviews") or []),
                 limit=per_country_fetch_limit,
@@ -468,6 +481,7 @@ def _save_and_log_result(
     window_to: datetime | None,
     max_reviews: int,
     reviews: list[dict[str, Any]],
+    store: str,
     source: str,
     selected_app_id: str | None,
     url: str,
@@ -497,7 +511,8 @@ def _save_and_log_result(
             "prompt_versions": pipeline_result["prompt_versions"],
             "report_path": str(report_path),
             "source": "api",
-            "feedback_source": "google_play",
+            "store": store,
+            "feedback_source": store,
             "dashboard_config_snapshot": load_dashboard_config(package_name, "producer"),
             "launch_context": {
                 "source": source,
@@ -563,9 +578,21 @@ def _save_and_log_result(
     }
 
 
+def _resolve_app_store_identity(url: str, selected_app_id: str | None) -> str:
+    if selected_app_id:
+        return validate_app_store_id(selected_app_id)
+
+    match = APP_STORE_URL_PATTERN.search(url or "")
+    if match:
+        return validate_app_store_id(match.group("app_id"))
+
+    raise ValueError("App Store report requires a numeric app_id.")
+
+
 @observe(name="generate_dashboard", capture_input=False, capture_output=False)
 async def _generate_dashboard(
     *,
+    store: str,
     url: str,
     max_reviews: int,
     langs_raw: str | None,
@@ -580,6 +607,8 @@ async def _generate_dashboard(
     progress_callback: Callable[[dict[str, Any]], Awaitable[None] | None] | None = None,
 ) -> dict[str, Any]:
     started = time.perf_counter()
+    if store == "app_store":
+        max_reviews = min(max_reviews, APP_STORE_MAX_REVIEWS)
     normalized_country, window_mode, window_from, window_to, fetch_langs, fetch_max_reviews, fetch_countries = (
         _resolve_dashboard_params(url, max_reviews, langs_raw, country, period, from_date, to_date)
     )
@@ -587,6 +616,7 @@ async def _generate_dashboard(
         name="dashboard_generation",
         metadata={
             "source": source,
+            "store": store,
             "selected_app_id": selected_app_id,
             "country": normalized_country,
             "period": period or "legacy",
@@ -600,6 +630,7 @@ async def _generate_dashboard(
     log_event(
         "dashboard_generation_started",
         source=source,
+        store=store,
         app_id=selected_app_id,
         country=normalized_country,
         countries_fetched=fetch_countries,
@@ -611,11 +642,15 @@ async def _generate_dashboard(
         sample_limit=WINDOW_SAMPLE_LIMIT if window_mode else max_reviews,
     )
 
-    package_name, resolved_title = parse_google_play_url(
-        url,
-        country=fetch_countries[0],
-        lang=fetch_langs[0],
-    )
+    if store == "app_store":
+        package_name = _resolve_app_store_identity(url, selected_app_id)
+        resolved_title = None
+    else:
+        package_name, resolved_title = parse_google_play_url(
+            url,
+            country=fetch_countries[0],
+            lang=fetch_langs[0],
+        )
 
     async def _emit(event: dict[str, Any]) -> None:
         if not progress_callback:
@@ -628,6 +663,7 @@ async def _generate_dashboard(
     await _emit({"type": "status", "step": "fetching"})
 
     reviews, app_metadata, app_name_from_payload, fetched_at = await _fetch_all_reviews(
+        store=store,
         package_name=package_name,
         fetch_countries=fetch_countries,
         fetch_langs=fetch_langs,
@@ -681,6 +717,7 @@ async def _generate_dashboard(
         window_to=window_to,
         max_reviews=max_reviews,
         reviews=reviews,
+        store=store,
         source=source,
         selected_app_id=selected_app_id,
         url=url,
@@ -695,6 +732,7 @@ async def health() -> dict[str, str]:
 
 @app.get("/api/report/sync")
 async def report_sync(
+    store: str = Query("google_play", pattern="^(google_play|app_store)$"),
     url: str = Query(..., description="Google Play URL or package name"),
     max_reviews: int = Query(300, ge=1, le=5000),
     langs: str = Query("en,ru"),
@@ -709,6 +747,7 @@ async def report_sync(
 ) -> dict[str, Any]:
     try:
         return await _generate_dashboard(
+            store=store,
             url=url,
             max_reviews=max_reviews,
             langs_raw=langs,
@@ -730,6 +769,7 @@ async def report_sync(
 @app.get("/api/report")
 async def report_sse(
     request: Request,
+    store: str = Query("google_play", pattern="^(google_play|app_store)$"),
     url: str = Query(..., description="Google Play URL or package name"),
     max_reviews: int = Query(300, ge=1, le=5000),
     langs: str = Query("en,ru"),
@@ -750,6 +790,7 @@ async def report_sse(
     async def _worker() -> None:
         try:
             result = await _generate_dashboard(
+                store=store,
                 url=url,
                 max_reviews=max_reviews,
                 langs_raw=langs,
@@ -905,6 +946,21 @@ async def resolve_google_play(
         return await asyncio.to_thread(resolve_google_play_input, input, country, lang, limit)
     except ResolveInputError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/resolve/app-store")
+async def resolve_app_store(
+    app_id: str = Query(..., min_length=1),
+    country: str = Query("us"),
+) -> dict[str, Any]:
+    try:
+        return await resolve_app_store_input(app_id, country)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 

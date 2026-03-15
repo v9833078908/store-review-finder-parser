@@ -49,6 +49,7 @@ _HISTORY_SUMMARY_FIELDS = frozenset(
         "run_id",
         "package_name",
         "app_name",
+        "store",
         "saved_at",
         "country",
         "window_mode",

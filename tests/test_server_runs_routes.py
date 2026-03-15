@@ -10,20 +10,28 @@ import server
 import storage
 
 
-def _write_run(runs_dir: Path, run_id: str, package_name: str, app_name: str, saved_at: str) -> None:
+def _write_run(
+    runs_dir: Path,
+    run_id: str,
+    package_name: str,
+    app_name: str,
+    saved_at: str,
+    store: str | None = None,
+) -> None:
     filename = f"{app_name.replace(' ', '_')}_{saved_at.replace(':', '').replace('-', '')}_{run_id}.json"
+    payload = {
+        "run_id": run_id,
+        "package_name": package_name,
+        "app_name": app_name,
+        "saved_at": saved_at,
+        "country": "us",
+        "window_mode": "7d",
+        "reviews_selected": 42,
+    }
+    if store:
+        payload["store"] = store
     (runs_dir / filename).write_text(
-        json.dumps(
-            {
-                "run_id": run_id,
-                "package_name": package_name,
-                "app_name": app_name,
-                "saved_at": saved_at,
-                "country": "us",
-                "window_mode": "7d",
-                "reviews_selected": 42,
-            }
-        ),
+        json.dumps(payload),
         encoding="utf-8",
     )
 
@@ -128,6 +136,19 @@ def test_get_runs_empty_when_no_files(monkeypatch, tmp_path: Path) -> None:
     payload = response.json()
     assert payload["items"] == []
     assert payload["count"] == 0
+
+
+def test_get_runs_includes_store_for_app_store_artifact(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(storage, "RUNS_DIR", tmp_path)
+    _write_run(tmp_path, "ios123", "123456789", "Sample iOS Game", "2026-02-17T00:00:00Z", store="app_store")
+
+    client = TestClient(server.app)
+    response = client.get("/api/runs")
+
+    assert response.status_code == 200
+    item = response.json()["items"][0]
+    assert item["package_name"] == "123456789"
+    assert item["store"] == "app_store"
 
 
 def test_get_run_with_ru_lang_uses_localization(monkeypatch, tmp_path: Path) -> None:

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import type { ReportSseEvent, ReportSummaryPayload } from "@/lib/api-types"
 
 export interface ReportRequest {
+  store?: "google_play" | "app_store"
   url: string
   country: string
   period: "7d" | "14d" | "30d" | "90d" | "custom"
@@ -49,6 +50,7 @@ export function useReport() {
       setProgress({ step: "starting" })
 
       const query = new URLSearchParams()
+      query.set("store", request.store || "google_play")
       query.set("url", request.url)
       query.set("country", request.country)
       query.set("period", request.period)

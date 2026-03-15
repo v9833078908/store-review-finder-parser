@@ -14,7 +14,7 @@
 1. Пользователь открывает `/search-app` в `frontend`.
 2. На `search-app` доступны два сценария:
    - scan по каталогу Google Play (lead finder parity),
-   - акцентный direct-input URL/поискового URL Google Play.
+   - акцентный direct-input для Google Play и App Store.
 3. Пользователь формирует отчет по выбранной игре.
 4. `frontend` открывает экран отчета и запускает SSE-запрос в Python API (`/api/report`) через BFF proxy.
 5. Backend выполняет unified pipeline:
@@ -101,6 +101,10 @@ npm run dev
 
 Open: `http://localhost:51200/search-app`
 
+Direct report input on `/search-app`:
+- `Google Play`: URL details/search or package/query resolve flow
+- `App Store`: numeric `app_id` only (example: `123456789`)
+
 ### 4) Optional: Run legacy Lead Finder (backward compatibility only)
 
 ```bash
@@ -184,6 +188,7 @@ docker compose --profile cli run --rm review-parser \
 
 Синхронная генерация отчета. Основные query params:
 - `url` (required)
+- `store` (`google_play|app_store`, optional, default `google_play`)
 - `max_reviews`
 - `langs`
 - `country`
@@ -204,6 +209,18 @@ docker compose --profile cli run --rm review-parser \
 {"type":"report","data":{"run_id":"...","report_layers":{...},"markdown":"...","artifact_path":"..."}}
 {"type":"done"}
 ```
+
+### `GET /api/resolve/app-store`
+
+Resolve numeric App Store `app_id` into a single candidate for direct report generation.
+
+Query params:
+- `app_id` (required, numeric)
+- `country` (optional, default `us`)
+
+Notes:
+- App Store catalog scan is not implemented
+- App Store direct reports are limited to up to `500` newest reviews for MVP
 
 ### `GET /api/runs` (run history list)
 

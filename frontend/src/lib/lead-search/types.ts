@@ -42,7 +42,7 @@ export interface ResolvedAppCandidate {
 }
 
 export interface ResolveResponse {
-  input_type: "package" | "details_url" | "search_url" | "query"
+  input_type: "package" | "details_url" | "search_url" | "query" | "app_store_id"
   recommended_app_id: string
   candidates: ResolvedAppCandidate[]
 }

@@ -8,6 +8,7 @@ import pytest
 from sources.yandex_games import (
     extract_yandex_games_app_id,
     fetch_yandex_games_reviews,
+    _bootstrap_xhr_context,
     normalize_yandex_games_review,
     YandexGamesFallbackNeeded,
 )
@@ -135,3 +136,27 @@ def test_fetch_yandex_games_reviews_does_not_retry_value_error(monkeypatch: pyte
         asyncio.run(fetch_yandex_games_reviews("https://yandex.ru/games/app/423744", country="ru"))
 
     assert attempts == 1
+
+
+def test_bootstrap_xhr_context_extracts_app_id_from_page_html(monkeypatch: pytest.MonkeyPatch) -> None:
+    html = """
+    <html>
+      <script>
+        window.__INITIAL_STATE__ = {"game":{"id":"423744","title":"Sample Yandex Game"}};
+      </script>
+    </html>
+    """
+
+    class FakeResponse:
+        status_code = 200
+        text = html
+
+    def fake_get_page(*args, **kwargs):
+        return FakeResponse()
+
+    monkeypatch.setattr("sources.yandex_games._get_impersonated_page", fake_get_page)
+
+    context = asyncio.run(_bootstrap_xhr_context("423744", "ru"))
+
+    assert context["app_id"] == "423744"
+    assert context["app_name"] == "Sample Yandex Game"

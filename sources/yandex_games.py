@@ -5,7 +5,14 @@ import re
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Optional
 
+try:
+    from curl_cffi import requests as curl_requests
+except ImportError:  # pragma: no cover - dependency may be absent in local test env
+    curl_requests = None
+
 YANDEX_GAMES_URL_RE = re.compile(r"^https://yandex\.ru/games/app/(?P<app_id>\d+)(?:[/?#].*)?$")
+_INITIAL_STATE_APP_ID_RE = re.compile(r'"id"\s*:\s*"(?P<app_id>\d+)"')
+_INITIAL_STATE_TITLE_RE = re.compile(r'"title"\s*:\s*"(?P<title>[^"]+)"')
 
 
 class YandexGamesFallbackNeeded(RuntimeError):
@@ -48,8 +55,37 @@ def normalize_yandex_games_review(raw: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _get_impersonated_page(url: str, *, country: str) -> Any:
+    if curl_requests is None:
+        raise RuntimeError("curl_cffi is required for Yandex Games transport")
+
+    headers = {
+        "Accept-Language": f"{country},en;q=0.9",
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    }
+    return curl_requests.get(url, impersonate="chrome124", timeout=30, headers=headers)
+
+
+def _extract_bootstrap_context(html: str, app_id: str) -> dict[str, Any]:
+    matched_app_id = _INITIAL_STATE_APP_ID_RE.search(html or "")
+    matched_title = _INITIAL_STATE_TITLE_RE.search(html or "")
+
+    context_app_id = matched_app_id.group("app_id") if matched_app_id else app_id
+    context_app_name = matched_title.group("title") if matched_title else app_id
+    return {
+        "app_id": context_app_id,
+        "app_name": context_app_name,
+        "html": html,
+    }
+
+
 async def _bootstrap_xhr_context(app_id: str, country: str) -> dict[str, Any]:
-    raise YandexGamesFallbackNeeded(f"XHR bootstrap is unavailable for {app_id} in {country}")
+    url = f"https://yandex.ru/games/app/{app_id}"
+    response = _get_impersonated_page(url, country=country)
+    html = str(getattr(response, "text", "") or "")
+    if not html:
+        raise YandexGamesFallbackNeeded(f"Unable to load Yandex Games page for {app_id} in {country}")
+    return _extract_bootstrap_context(html, app_id)
 
 
 async def _fetch_reviews_page(context: dict[str, Any], page_token: Optional[str] = None) -> dict[str, Any]:

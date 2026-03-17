@@ -3,13 +3,16 @@ from __future__ import annotations
 import asyncio
 import re
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any, Awaitable, Callable, Optional
 
 YANDEX_GAMES_URL_RE = re.compile(r"^https://yandex\.ru/games/app/(?P<app_id>\d+)(?:[/?#].*)?$")
 
 
 class YandexGamesFallbackNeeded(RuntimeError):
     pass
+
+
+_TRANSIENT_EXCEPTIONS = (TimeoutError, ConnectionError, asyncio.TimeoutError)
 
 
 def extract_yandex_games_app_id(url: str) -> str:
@@ -55,7 +58,11 @@ async def _fetch_reviews_page(context: dict[str, Any], page_token: Optional[str]
     raise YandexGamesFallbackNeeded("XHR reviews fetch is unavailable")
 
 
-async def _retry_async(operation, *, attempts: int = 3) -> Any:
+def _is_transient_exception(exc: Exception) -> bool:
+    return isinstance(exc, _TRANSIENT_EXCEPTIONS)
+
+
+async def _retry_async(operation: Callable[[], Awaitable[Any]], *, attempts: int = 3) -> Any:
     last_error: Optional[Exception] = None
     for attempt in range(attempts):
         try:
@@ -63,6 +70,8 @@ async def _retry_async(operation, *, attempts: int = 3) -> Any:
         except YandexGamesFallbackNeeded:
             raise
         except Exception as exc:  # pragma: no cover - defensive retry path
+            if not _is_transient_exception(exc):
+                raise
             last_error = exc
             if attempt == attempts - 1:
                 raise

@@ -96,3 +96,42 @@ def test_fetch_yandex_games_reviews_surfaces_fallback_needed(monkeypatch: pytest
 
     with pytest.raises(YandexGamesFallbackNeeded, match="bootstrap failed"):
         asyncio.run(fetch_yandex_games_reviews("https://yandex.ru/games/app/423744", country="ru"))
+
+
+def test_fetch_yandex_games_reviews_retries_transient_bootstrap_failures(monkeypatch: pytest.MonkeyPatch) -> None:
+    attempts = 0
+
+    async def fake_bootstrap_xhr_context(app_id: str, country: str) -> dict[str, str]:
+        nonlocal attempts
+        attempts += 1
+        if attempts < 2:
+            raise TimeoutError("temporary network issue")
+        return {"app_id": app_id, "country": country, "app_name": "Sample"}
+
+    async def fake_fetch_reviews_page(context: dict[str, str], page_token: Optional[str] = None) -> dict[str, object]:
+        assert page_token is None
+        return {"reviews": [], "nextPageToken": None}
+
+    monkeypatch.setattr("sources.yandex_games._bootstrap_xhr_context", fake_bootstrap_xhr_context)
+    monkeypatch.setattr("sources.yandex_games._fetch_reviews_page", fake_fetch_reviews_page)
+
+    payload = asyncio.run(fetch_yandex_games_reviews("https://yandex.ru/games/app/423744", country="ru"))
+
+    assert attempts == 2
+    assert payload["app_id"] == "423744"
+
+
+def test_fetch_yandex_games_reviews_does_not_retry_value_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    attempts = 0
+
+    async def fake_bootstrap_xhr_context(app_id: str, country: str) -> dict[str, str]:
+        nonlocal attempts
+        attempts += 1
+        raise ValueError("schema mismatch")
+
+    monkeypatch.setattr("sources.yandex_games._bootstrap_xhr_context", fake_bootstrap_xhr_context)
+
+    with pytest.raises(ValueError, match="schema mismatch"):
+        asyncio.run(fetch_yandex_games_reviews("https://yandex.ru/games/app/423744", country="ru"))
+
+    assert attempts == 1

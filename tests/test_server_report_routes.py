@@ -130,6 +130,47 @@ def test_report_sync_contract_accepts_app_store(monkeypatch) -> None:
     assert payload["package_name"] == "123456789"
 
 
+def test_report_sync_contract_accepts_yandex_games(monkeypatch) -> None:
+    async def fake_generate_dashboard(**kwargs):
+        assert kwargs["store"] == "yandex_games"
+        assert kwargs["url"] == "https://yandex.ru/games/app/423744"
+        assert kwargs["country"] == "ru"
+        return {
+            "run_id": "run-yandex-games",
+            "package_name": "423744",
+            "app_name": "Sample Yandex Game",
+            "report_path": "/tmp/report.md",
+            "artifact_path": "/tmp/run.json",
+            "markdown": "# Report",
+            "report_layers": {
+                "summary": {"title": "Summary", "narrative": "", "cards": [], "metrics": {}, "updated_at": "2026-03-18T00:00:00Z"},
+                "signals": {"title": "Signals", "narrative": "", "cards": [], "metrics": {}, "updated_at": "2026-03-18T00:00:00Z"},
+                "issues": {"title": "Issues", "narrative": "", "cards": [], "metrics": {}, "updated_at": "2026-03-18T00:00:00Z"},
+                "actions": {"title": "Actions", "narrative": "", "cards": [], "metrics": {}, "updated_at": "2026-03-18T00:00:00Z"},
+            },
+            "stats": {},
+            "category_counts": {},
+            "alerts_count": 0,
+        }
+
+    monkeypatch.setattr(server, "_generate_dashboard", fake_generate_dashboard)
+
+    client = TestClient(server.app)
+    response = client.get(
+        "/api/report/sync",
+        params={
+            "store": "yandex_games",
+            "url": "https://yandex.ru/games/app/423744",
+            "country": "ru",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["run_id"] == "run-yandex-games"
+    assert payload["package_name"] == "423744"
+
+
 def test_report_sse_contains_report_and_done(monkeypatch) -> None:
     async def fake_generate_dashboard(**kwargs):
         progress_callback = kwargs.get("progress_callback")

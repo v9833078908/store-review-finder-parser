@@ -29,6 +29,7 @@ from observability import init_observability, observe, shutdown_observability, u
 from report_builder import build_unified_report
 from scraper import REGION_LANGUAGE_SWEEP, fetch_reviews
 from sources.app_store import APP_STORE_MAX_REVIEWS, fetch_app_store_reviews, resolve_app_store_input, validate_app_store_id
+from sources.yandex_games import extract_yandex_games_app_id, fetch_yandex_games_reviews
 from storage import list_run_artifacts, load_run_artifact, save_run_artifact
 from utils import log_event, safe_name
 from version_tracker import get_current_version, get_previous_version, update_version_history
@@ -267,6 +268,7 @@ def _resolve_dashboard_params(
 
 async def _fetch_all_reviews(
     store: str,
+    url: str,
     package_name: str,
     fetch_countries: list[str],
     fetch_langs: list[str],
@@ -313,6 +315,14 @@ async def _fetch_all_reviews(
             if store == "app_store":
                 payload = await fetch_app_store_reviews(
                     app_id=package_name,
+                    max_reviews=per_country_fetch_limit,
+                    country=fetch_country,
+                    force_refresh=force_refresh,
+                    cache_ttl=timedelta(hours=cache_ttl_hours),
+                )
+            elif store == "yandex_games":
+                payload = await fetch_yandex_games_reviews(
+                    url=url,
                     max_reviews=per_country_fetch_limit,
                     country=fetch_country,
                     force_refresh=force_refresh,
@@ -645,6 +655,9 @@ async def _generate_dashboard(
     if store == "app_store":
         package_name = _resolve_app_store_identity(url, selected_app_id)
         resolved_title = None
+    elif store == "yandex_games":
+        package_name = extract_yandex_games_app_id(url)
+        resolved_title = None
     else:
         package_name, resolved_title = parse_google_play_url(
             url,
@@ -664,6 +677,7 @@ async def _generate_dashboard(
 
     reviews, app_metadata, app_name_from_payload, fetched_at = await _fetch_all_reviews(
         store=store,
+        url=url,
         package_name=package_name,
         fetch_countries=fetch_countries,
         fetch_langs=fetch_langs,
@@ -732,8 +746,8 @@ async def health() -> dict[str, str]:
 
 @app.get("/api/report/sync")
 async def report_sync(
-    store: str = Query("google_play", pattern="^(google_play|app_store)$"),
-    url: str = Query(..., description="Google Play URL or package name"),
+    store: str = Query("google_play", pattern="^(google_play|app_store|yandex_games)$"),
+    url: str = Query(..., description="Store URL or app identifier"),
     max_reviews: int = Query(300, ge=1, le=5000),
     langs: str = Query("en,ru"),
     country: str = Query(..., min_length=2, max_length=8),
@@ -769,8 +783,8 @@ async def report_sync(
 @app.get("/api/report")
 async def report_sse(
     request: Request,
-    store: str = Query("google_play", pattern="^(google_play|app_store)$"),
-    url: str = Query(..., description="Google Play URL or package name"),
+    store: str = Query("google_play", pattern="^(google_play|app_store|yandex_games)$"),
+    url: str = Query(..., description="Store URL or app identifier"),
     max_reviews: int = Query(300, ge=1, le=5000),
     langs: str = Query("en,ru"),
     country: str = Query(..., min_length=2, max_length=8),

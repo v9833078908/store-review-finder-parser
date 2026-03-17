@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 import server
+from sources.yandex_games import YandexGamesFallbackNeeded
 
 
 def test_report_sync_contract(monkeypatch) -> None:
@@ -169,6 +171,131 @@ def test_report_sync_contract_accepts_yandex_games(monkeypatch) -> None:
     payload = response.json()
     assert payload["run_id"] == "run-yandex-games"
     assert payload["package_name"] == "423744"
+
+
+def test_generate_dashboard_uses_yandex_games_fetch_branch(monkeypatch) -> None:
+    calls: dict[str, object] = {}
+
+    async def fake_fetch_yandex_games_reviews(**kwargs):
+        calls["fetch_kwargs"] = kwargs
+        return {
+            "app_id": "423744",
+            "app_name": "Sample Yandex Game",
+            "country": "ru",
+            "reviews": [
+                {
+                    "review_id": "rev-1",
+                    "date": "2026-03-18T00:00:00+00:00",
+                    "rating": 5,
+                    "text": "Nice",
+                    "version": None,
+                    "thumbs_up": 0,
+                    "original_lang": "ru",
+                    "lang": "ru",
+                    "has_reply": False,
+                    "reply_text": None,
+                    "reply_date": None,
+                }
+            ],
+            "app_metadata": {"recent_changes": "v1"},
+            "fetched_at": "2026-03-18T00:00:00+00:00",
+            "cache_hit": False,
+        }
+
+    async def fake_run_pipeline_and_build_report(**kwargs):
+        calls["pipeline_kwargs"] = kwargs
+        return (
+            {
+                "run_id": "run-yandex-branch",
+                "themes": [],
+                "classified": [],
+                "alerts": [],
+                "stats": {},
+                "category_counts": {},
+                "synthesis_markdown": "",
+                "report_layers": {},
+                "model": "test",
+                "prompt_versions": {},
+            },
+            "# Report",
+            Path("/tmp/report.md"),
+            {"version": "1.0.0"},
+            None,
+        )
+
+    def fake_save_run_artifact(**kwargs):
+        calls["artifact_kwargs"] = kwargs
+        return "/tmp/run.json"
+
+    monkeypatch.setattr(server, "fetch_yandex_games_reviews", fake_fetch_yandex_games_reviews)
+    monkeypatch.setattr(server, "_run_pipeline_and_build_report", fake_run_pipeline_and_build_report)
+    monkeypatch.setattr(server, "save_run_artifact", fake_save_run_artifact)
+    monkeypatch.setattr(server, "update_version_history", lambda *args, **kwargs: None)
+    monkeypatch.setattr(server, "get_current_version", lambda package_name: {"version": "1.0.0"})
+    monkeypatch.setattr(server, "get_previous_version", lambda package_name: None)
+    monkeypatch.setattr(server, "load_dashboard_config", lambda *args, **kwargs: {})
+    monkeypatch.setattr(server, "log_event", lambda *args, **kwargs: None)
+    monkeypatch.setattr(server, "update_current_trace", lambda *args, **kwargs: None)
+
+    result = asyncio.run(
+        server._generate_dashboard(
+            store="yandex_games",
+            url="https://yandex.ru/games/app/423744",
+            max_reviews=25,
+            langs_raw="en,ru",
+            country="ru",
+            period=None,
+            from_date=None,
+            to_date=None,
+            force_refresh=False,
+            cache_ttl_hours=1,
+            source="direct_url",
+            selected_app_id=None,
+        )
+    )
+
+    assert calls["fetch_kwargs"]["url"] == "https://yandex.ru/games/app/423744"
+    assert calls["pipeline_kwargs"]["package_name"] == "423744"
+    assert calls["pipeline_kwargs"]["app_name"] == "Sample Yandex Game"
+    assert calls["artifact_kwargs"]["artifact"]["store"] == "yandex_games"
+    assert result["package_name"] == "423744"
+
+
+def test_report_sync_returns_503_for_yandex_games_fallback_needed(monkeypatch) -> None:
+    async def fake_generate_dashboard(**kwargs):
+        raise YandexGamesFallbackNeeded("bootstrap unavailable")
+
+    monkeypatch.setattr(server, "_generate_dashboard", fake_generate_dashboard)
+
+    client = TestClient(server.app)
+    response = client.get(
+        "/api/report/sync",
+        params={
+            "store": "yandex_games",
+            "url": "https://yandex.ru/games/app/423744",
+            "country": "ru",
+        },
+    )
+
+    assert response.status_code == 503
+    payload = response.json()
+    assert "bootstrap unavailable" in payload["detail"]
+
+
+def test_report_sync_rejects_yandex_games_country_all(monkeypatch) -> None:
+    client = TestClient(server.app)
+    response = client.get(
+        "/api/report/sync",
+        params={
+            "store": "yandex_games",
+            "url": "https://yandex.ru/games/app/423744",
+            "country": "all",
+        },
+    )
+
+    assert response.status_code == 422
+    payload = response.json()
+    assert "Yandex Games" in payload["detail"]
 
 
 def test_report_sse_contains_report_and_done(monkeypatch) -> None:

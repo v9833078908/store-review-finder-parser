@@ -29,7 +29,7 @@ from observability import init_observability, observe, shutdown_observability, u
 from report_builder import build_unified_report
 from scraper import REGION_LANGUAGE_SWEEP, fetch_reviews
 from sources.app_store import APP_STORE_MAX_REVIEWS, fetch_app_store_reviews, resolve_app_store_input, validate_app_store_id
-from sources.yandex_games import extract_yandex_games_app_id, fetch_yandex_games_reviews
+from sources.yandex_games import YandexGamesFallbackNeeded, extract_yandex_games_app_id, fetch_yandex_games_reviews
 from storage import list_run_artifacts, load_run_artifact, save_run_artifact
 from utils import log_event, safe_name
 from version_tracker import get_current_version, get_previous_version, update_version_history
@@ -250,9 +250,12 @@ def _resolve_dashboard_params(
     period: str | None,
     from_date: str | None,
     to_date: str | None,
+    store: str,
 ) -> tuple[str, str | None, datetime | None, datetime | None, list[str], int, list[str]]:
     """Normalise request parameters; return resolved fetch config."""
     normalized_country = _normalize_region(country)
+    if store == "yandex_games" and normalized_country == ALL_REGION_CODE:
+        raise ValueError("Yandex Games report requires a specific country, not 'all'.")
     window_mode, window_from, window_to = _resolve_window(period, from_date, to_date)
 
     if window_mode:
@@ -620,7 +623,7 @@ async def _generate_dashboard(
     if store == "app_store":
         max_reviews = min(max_reviews, APP_STORE_MAX_REVIEWS)
     normalized_country, window_mode, window_from, window_to, fetch_langs, fetch_max_reviews, fetch_countries = (
-        _resolve_dashboard_params(url, max_reviews, langs_raw, country, period, from_date, to_date)
+        _resolve_dashboard_params(url, max_reviews, langs_raw, country, period, from_date, to_date, store)
     )
     update_current_trace(
         name="dashboard_generation",
@@ -778,6 +781,8 @@ async def report_sync(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except YandexGamesFallbackNeeded as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @app.get("/api/report")
@@ -822,6 +827,8 @@ async def report_sse(
         except asyncio.CancelledError:
             await queue.put({"type": "error", "message": "Request cancelled"})
             raise
+        except YandexGamesFallbackNeeded as exc:
+            await queue.put({"type": "error", "message": str(exc)})
         except Exception as exc:
             await queue.put({"type": "error", "message": str(exc)})
         finally:

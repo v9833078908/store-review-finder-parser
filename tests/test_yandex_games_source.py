@@ -160,3 +160,39 @@ def test_bootstrap_xhr_context_extracts_app_id_from_page_html(monkeypatch: pytes
 
     assert context["app_id"] == "423744"
     assert context["app_name"] == "Sample Yandex Game"
+
+
+def test_bootstrap_xhr_context_raises_for_non_game_html(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeResponse:
+        status_code = 200
+        text = "<html><body><h1>Access denied</h1></body></html>"
+
+    def fake_get_page(*args, **kwargs):
+        return FakeResponse()
+
+    monkeypatch.setattr("sources.yandex_games._get_impersonated_page", fake_get_page)
+
+    with pytest.raises(YandexGamesFallbackNeeded, match="bootstrap"):
+        asyncio.run(_bootstrap_xhr_context("423744", "ru"))
+
+
+def test_bootstrap_xhr_context_raises_for_mismatched_app_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    html = """
+    <html>
+      <script>
+        window.__INITIAL_STATE__ = {"game":{"id":"999999","title":"Wrong Game"}};
+      </script>
+    </html>
+    """
+
+    class FakeResponse:
+        status_code = 200
+        text = html
+
+    def fake_get_page(*args, **kwargs):
+        return FakeResponse()
+
+    monkeypatch.setattr("sources.yandex_games._get_impersonated_page", fake_get_page)
+
+    with pytest.raises(YandexGamesFallbackNeeded, match="423744"):
+        asyncio.run(_bootstrap_xhr_context("423744", "ru"))

@@ -11,8 +11,7 @@ except ImportError:  # pragma: no cover - dependency may be absent in local test
     curl_requests = None
 
 YANDEX_GAMES_URL_RE = re.compile(r"^https://yandex\.ru/games/app/(?P<app_id>\d+)(?:[/?#].*)?$")
-_INITIAL_STATE_APP_ID_RE = re.compile(r'"id"\s*:\s*"(?P<app_id>\d+)"')
-_INITIAL_STATE_TITLE_RE = re.compile(r'"title"\s*:\s*"(?P<title>[^"]+)"')
+_GAME_PAYLOAD_RE_TEMPLATE = r'"game"\s*:\s*\{{[^{{}}]*"id"\s*:\s*"{app_id}"[^{{}}]*"title"\s*:\s*"(?P<title>[^"]+)"'
 
 
 class YandexGamesFallbackNeeded(RuntimeError):
@@ -67,14 +66,14 @@ def _get_impersonated_page(url: str, *, country: str) -> Any:
 
 
 def _extract_bootstrap_context(html: str, app_id: str) -> dict[str, Any]:
-    matched_app_id = _INITIAL_STATE_APP_ID_RE.search(html or "")
-    matched_title = _INITIAL_STATE_TITLE_RE.search(html or "")
+    pattern = re.compile(_GAME_PAYLOAD_RE_TEMPLATE.format(app_id=re.escape(app_id)), re.DOTALL)
+    matched_game = pattern.search(html or "")
+    if not matched_game:
+        raise YandexGamesFallbackNeeded(f"Unable to extract bootstrap payload for requested game {app_id}")
 
-    context_app_id = matched_app_id.group("app_id") if matched_app_id else app_id
-    context_app_name = matched_title.group("title") if matched_title else app_id
     return {
-        "app_id": context_app_id,
-        "app_name": context_app_name,
+        "app_id": app_id,
+        "app_name": matched_game.group("title"),
         "html": html,
     }
 

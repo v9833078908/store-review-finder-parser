@@ -173,6 +173,29 @@ def test_report_sync_contract_accepts_yandex_games(monkeypatch) -> None:
     assert payload["package_name"] == "423744"
 
 
+def test_resolve_dashboard_params_ignores_window_for_yandex_games() -> None:
+    normalized_country, window_mode, window_from, window_to, fetch_langs, fetch_max_reviews, fetch_countries = (
+        server._resolve_dashboard_params(
+            url="https://yandex.ru/games/app/423744",
+            max_reviews=300,
+            langs_raw="en,ru",
+            country="us",
+            period="14d",
+            from_date=None,
+            to_date=None,
+            store="yandex_games",
+        )
+    )
+
+    assert normalized_country == "ru"
+    assert window_mode is None
+    assert window_from is None
+    assert window_to is None
+    assert fetch_langs == ["ru"]
+    assert fetch_max_reviews == 300
+    assert fetch_countries == ["ru"]
+
+
 def test_generate_dashboard_uses_yandex_games_fetch_branch(monkeypatch) -> None:
     calls: dict[str, object] = {}
 
@@ -282,7 +305,25 @@ def test_report_sync_returns_503_for_yandex_games_fallback_needed(monkeypatch) -
     assert "bootstrap unavailable" in payload["detail"]
 
 
-def test_report_sync_rejects_yandex_games_country_all(monkeypatch) -> None:
+def test_report_sync_accepts_yandex_games_country_all(monkeypatch) -> None:
+    async def fake_generate_dashboard(**kwargs):
+        assert kwargs["store"] == "yandex_games"
+        assert kwargs["country"] == "all"
+        return {
+            "run_id": "run-yandex-all",
+            "package_name": "423744",
+            "app_name": "Sample Yandex Game",
+            "report_path": "/tmp/report.md",
+            "artifact_path": "/tmp/run.json",
+            "markdown": "# Report",
+            "report_layers": {},
+            "stats": {},
+            "category_counts": {},
+            "alerts_count": 0,
+        }
+
+    monkeypatch.setattr(server, "_generate_dashboard", fake_generate_dashboard)
+
     client = TestClient(server.app)
     response = client.get(
         "/api/report/sync",
@@ -293,9 +334,9 @@ def test_report_sync_rejects_yandex_games_country_all(monkeypatch) -> None:
         },
     )
 
-    assert response.status_code == 422
+    assert response.status_code == 200
     payload = response.json()
-    assert "Yandex Games" in payload["detail"]
+    assert payload["run_id"] == "run-yandex-all"
 
 
 def test_report_sse_contains_report_and_done(monkeypatch) -> None:

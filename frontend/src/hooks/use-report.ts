@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import type { ReportSseEvent, ReportSummaryPayload } from "@/lib/api-types"
 
 export interface ReportRequest {
-  store?: "google_play" | "app_store"
+  store?: "google_play" | "app_store" | "yandex_games"
   url: string
   country: string
   period: "7d" | "14d" | "30d" | "90d" | "custom"

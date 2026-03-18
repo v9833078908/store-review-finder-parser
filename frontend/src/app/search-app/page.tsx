@@ -14,7 +14,8 @@ import type { DatePreset } from "@/lib/date-filters"
 import { listAllRegions } from "@/lib/regions"
 
 type ScanState = "idle" | "scanning" | "done" | "error"
-type ReportStore = "google_play" | "app_store"
+type ReportStore = "google_play" | "app_store" | "yandex_games"
+const YANDEX_GAMES_URL_RE = /^https:\/\/yandex\.ru\/games\/app\/(\d+)(?:[/?#].*)?$/i
 
 function resolveErrorMessage(payload: unknown): string {
   if (!payload || typeof payload !== "object") return "Resolve request failed"
@@ -116,20 +117,47 @@ export default function SearchAppPage() {
     setState("done")
   }
 
+  const buildYandexGamesResolveData = (inputUrl: string): ResolveResponse => {
+    const normalizedUrl = inputUrl.trim()
+    const match = YANDEX_GAMES_URL_RE.exec(normalizedUrl)
+    const appId = match?.[1]
+    if (!appId) {
+      throw new Error("Yandex Games input must be a direct game URL like https://yandex.ru/games/app/423744")
+    }
+    return {
+      input_type: "details_url",
+      recommended_app_id: appId,
+      candidates: [
+        {
+          app_id: appId,
+          title: `Yandex Games app ${appId}`,
+          url: normalizedUrl,
+          is_top1: true,
+        },
+      ],
+    }
+  }
+
   const resolveInput = async () => {
     if (!playInput.trim()) {
-      setResolveError(reportStore === "app_store" ? "Enter App Store numeric app_id first" : "Paste Google Play URL or package first")
+      setResolveError(
+        reportStore === "app_store"
+          ? "Enter App Store numeric app_id first"
+          : reportStore === "yandex_games"
+            ? "Paste a direct Yandex Games URL first"
+            : "Paste Google Play URL or package first",
+      )
       return
     }
     if (reportStore === "app_store" && !/^\d+$/.test(playInput.trim())) {
       setResolveError("App Store input must be a numeric app_id.")
       return
     }
-    if (!isCountryValid) {
+    if (!usesYandexGamesFlow && !isCountryValid) {
       setResolveError("Select a valid region code from the list.")
       return
     }
-    if (!isCustomWindowValid) {
+    if (!usesYandexGamesFlow && !isCustomWindowValid) {
       setResolveError("Set a valid custom period: From date must be earlier than To date.")
       return
     }
@@ -139,6 +167,13 @@ export default function SearchAppPage() {
     setResolveData(null)
 
     try {
+      if (reportStore === "yandex_games") {
+        const data = buildYandexGamesResolveData(playInput)
+        setResolveData(data)
+        setSelectedAppId(data.recommended_app_id)
+        return
+      }
+
       const query = new URLSearchParams()
       query.set("country", normalizedReportCountry)
       if (reportStore === "app_store") {
@@ -174,23 +209,27 @@ export default function SearchAppPage() {
     if (!resolveData) return null
     return resolveData.candidates.find((item) => item.app_id === selectedAppId) || resolveData.candidates[0] || null
   }, [resolveData, selectedAppId])
+  const usesYandexGamesFlow = reportStore === "yandex_games"
 
   const reportHref = useMemo(() => {
-    if (!selectedCandidate || !isCountryValid || !isCustomWindowValid) return ""
+    if (!selectedCandidate) return ""
+    if (!usesYandexGamesFlow && (!isCountryValid || !isCustomWindowValid)) return ""
     const query = new URLSearchParams()
     query.set("url", selectedCandidate.url)
     query.set("store", reportStore)
-    query.set("country", normalizedReportCountry)
+    query.set("country", usesYandexGamesFlow ? "ru" : normalizedReportCountry)
     query.set("source", "direct_url")
     query.set("app_id", selectedCandidate.app_id)
     query.set("lang", "en")
-    query.set("period", reportPeriod)
-    if (reportPeriod === "custom" && reportCustomFrom && reportCustomTo) {
+    if (!usesYandexGamesFlow) {
+      query.set("period", reportPeriod)
+    }
+    if (!usesYandexGamesFlow && reportPeriod === "custom" && reportCustomFrom && reportCustomTo) {
       query.set("from", reportCustomFrom)
       query.set("to", reportCustomTo)
     }
     return `/report?${query.toString()}`
-  }, [isCountryValid, isCustomWindowValid, normalizedReportCountry, reportCustomFrom, reportCustomTo, reportPeriod, reportStore, selectedCandidate])
+  }, [isCountryValid, isCustomWindowValid, normalizedReportCountry, reportCustomFrom, reportCustomTo, reportPeriod, reportStore, selectedCandidate, usesYandexGamesFlow])
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 to-background">
@@ -203,7 +242,7 @@ export default function SearchAppPage() {
           </div>
           <h1 className="mb-2 text-4xl font-extrabold tracking-tight">Review Analytics</h1>
           <p className="mx-auto max-w-xl text-muted-foreground">
-            Generate review analytics report for Google Play or App Store games, or scan Google Play top charts to find games with low developer reply rates.
+            Generate review analytics report for Google Play, App Store, or Yandex Games titles, or scan Google Play top charts to find games with low developer reply rates.
           </p>
         </header>
 
@@ -216,14 +255,20 @@ export default function SearchAppPage() {
             <p className="mb-5 text-sm text-muted-foreground">
               {reportStore === "app_store"
                 ? "Enter a numeric App Store app_id to analyze reviews"
-                : "Paste a Google Play URL or search query to analyze reviews"}
+                : reportStore === "yandex_games"
+                  ? "Paste a direct Yandex Games app URL to analyze reviews"
+                  : "Paste a Google Play URL or search query to analyze reviews"}
             </p>
 
             <div className="mb-3 grid grid-cols-1 gap-3 sm:max-w-[220px]">
               <Select
                 value={reportStore}
                 onValueChange={(value) => {
-                  setReportStore(value as ReportStore)
+                  const nextStore = value as ReportStore
+                  setReportStore(nextStore)
+                  if (nextStore === "yandex_games" && (!reportCountry.trim() || reportCountry.trim().toLowerCase() === "us")) {
+                    setReportCountry("ru")
+                  }
                   setResolveData(null)
                   setResolveError(null)
                   setSelectedAppId("")
@@ -235,65 +280,72 @@ export default function SearchAppPage() {
                 <SelectContent>
                   <SelectItem value="google_play">Google Play</SelectItem>
                   <SelectItem value="app_store">App Store</SelectItem>
+                  <SelectItem value="yandex_games">Yandex Games</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
-            <div className="grid grid-cols-1 gap-3 xl:grid-cols-[1fr_220px_160px_auto]">
+            <div className={`grid grid-cols-1 gap-3 ${usesYandexGamesFlow ? "xl:grid-cols-[1fr_auto]" : "xl:grid-cols-[1fr_220px_160px_auto]"}`}>
               <Input
                 value={playInput}
                 onChange={(event) => setPlayInput(event.target.value)}
                 placeholder={
                   reportStore === "app_store"
                     ? "123456789"
-                    : "https://play.google.com/store/search?q=pirate+ships&c=apps"
+                    : reportStore === "yandex_games"
+                      ? "https://yandex.ru/games/app/423744"
+                      : "https://play.google.com/store/search?q=pirate+ships&c=apps"
                 }
                 className="h-11"
               />
 
-              <div className="space-y-1">
-                <Input
-                  list="report-country-options"
-                  value={reportCountry}
-                  onChange={(event) => setReportCountry(event.target.value.toLowerCase())}
-                  placeholder="Region (e.g. us)"
-                  className={`h-11 ${!isCountryValid && reportCountry ? "border-destructive" : ""}`}
-                />
-                <datalist id="report-country-options">
-                  {regionOptions.map((region) => (
-                    <option key={region.code} value={region.code}>
-                      {region.name}
-                    </option>
-                  ))}
-                </datalist>
-                {!isCountryValid && reportCountry ? (
-                  <p className="text-xs text-destructive">Choose a valid region from the dropdown list.</p>
-                ) : null}
-              </div>
+              {!usesYandexGamesFlow && (
+                <div className="space-y-1">
+                  <Input
+                    list="report-country-options"
+                    value={reportCountry}
+                    onChange={(event) => setReportCountry(event.target.value.toLowerCase())}
+                    placeholder="Region (e.g. us)"
+                    className={`h-11 ${!isCountryValid && reportCountry ? "border-destructive" : ""}`}
+                  />
+                  <datalist id="report-country-options">
+                    {regionOptions.map((region) => (
+                      <option key={region.code} value={region.code}>
+                        {region.name}
+                      </option>
+                    ))}
+                  </datalist>
+                  {!isCountryValid && reportCountry ? (
+                    <p className="text-xs text-destructive">Choose a valid region from the dropdown list.</p>
+                  ) : null}
+                </div>
+              )}
 
-              <Select value={reportPeriod} onValueChange={(value) => setReportPeriod(value as DatePreset)}>
-                <SelectTrigger className="h-11">
-                  <SelectValue placeholder="Period" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="7d">Last 7 days</SelectItem>
-                  <SelectItem value="14d">Last 14 days</SelectItem>
-                  <SelectItem value="30d">Last 30 days</SelectItem>
-                  <SelectItem value="90d">Last 90 days</SelectItem>
-                  <SelectItem value="custom">Custom</SelectItem>
-                </SelectContent>
-              </Select>
+              {!usesYandexGamesFlow && (
+                <Select value={reportPeriod} onValueChange={(value) => setReportPeriod(value as DatePreset)}>
+                  <SelectTrigger className="h-11">
+                    <SelectValue placeholder="Period" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="7d">Last 7 days</SelectItem>
+                    <SelectItem value="14d">Last 14 days</SelectItem>
+                    <SelectItem value="30d">Last 30 days</SelectItem>
+                    <SelectItem value="90d">Last 90 days</SelectItem>
+                    <SelectItem value="custom">Custom</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
 
               <Button
                 onClick={resolveInput}
                 disabled={isResolving}
                 className="h-11 bg-amber-500 font-semibold text-white shadow-sm hover:bg-amber-600"
               >
-                {isResolving ? "Resolving..." : "Resolve"}
+                {isResolving ? "Resolving..." : reportStore === "yandex_games" ? "Validate URL" : "Resolve"}
               </Button>
             </div>
 
-            {reportPeriod === "custom" && (
+            {!usesYandexGamesFlow && reportPeriod === "custom" && (
               <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <Input
                   type="date"
@@ -311,7 +363,9 @@ export default function SearchAppPage() {
             <p className="mt-3 text-xs text-muted-foreground">
               {reportStore === "app_store"
                 ? "Numeric App Store app_id only · Up to 500 newest reviews from the selected period and region"
-                : "Google Play Store URLs only · Up to 1,000 newest reviews from the selected period and region"}
+                : reportStore === "yandex_games"
+                  ? "Direct Yandex Games URLs only · The scraper loads all available reviews from the game page"
+                  : "Google Play Store URLs only · Up to 1,000 newest reviews from the selected period and region"}
             </p>
 
             {resolveError && <p className="mt-3 text-sm text-destructive">{resolveError}</p>}
@@ -369,7 +423,11 @@ export default function SearchAppPage() {
                       rel="noopener noreferrer"
                       className="text-sm text-amber-700 hover:underline"
                     >
-                      {reportStore === "app_store" ? "Open in App Store" : "Open in Google Play"}
+                      {reportStore === "app_store"
+                        ? "Open in App Store"
+                        : reportStore === "yandex_games"
+                          ? "Open in Yandex Games"
+                          : "Open in Google Play"}
                     </a>
                   )}
                 </div>

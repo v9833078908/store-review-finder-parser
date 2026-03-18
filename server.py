@@ -254,8 +254,12 @@ def _resolve_dashboard_params(
 ) -> tuple[str, str | None, datetime | None, datetime | None, list[str], int, list[str]]:
     """Normalise request parameters; return resolved fetch config."""
     normalized_country = _normalize_region(country)
-    if store == "yandex_games" and normalized_country == ALL_REGION_CODE:
-        raise ValueError("Yandex Games report requires a specific country, not 'all'.")
+    if store == "yandex_games":
+        # Yandex Games MVP ignores region/window selection and fetches the available review feed
+        # for the direct game URL. We keep the transport pinned to ru because it is the most stable
+        # locale for the current bootstrap/fallback flow.
+        return "ru", None, None, None, ["ru"], max_reviews, ["ru"]
+
     window_mode, window_from, window_to = _resolve_window(period, from_date, to_date)
 
     if window_mode:

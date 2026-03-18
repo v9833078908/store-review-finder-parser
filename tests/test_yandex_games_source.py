@@ -9,6 +9,7 @@ import pytest
 from sources.yandex_games import (
     extract_yandex_games_app_id,
     fetch_yandex_games_reviews,
+    _get_playwright_browser_launch_kwargs,
     _bootstrap_xhr_context,
     _get_playwright_page_content,
     normalize_yandex_games_review,
@@ -354,6 +355,14 @@ def test_get_playwright_page_content_uses_persistent_context_and_warmup(monkeypa
         "https://yandex.ru/games/",
         "https://yandex.ru/games/app/423744",
     ]
+
+
+def test_get_playwright_browser_launch_kwargs_prefers_env_executable(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PLAYWRIGHT_BROWSER_EXECUTABLE", "/usr/bin/chromium")
+
+    kwargs = _get_playwright_browser_launch_kwargs()
+
+    assert kwargs == {"executable_path": "/usr/bin/chromium"}
 
 
 def test_fetch_reviews_page_uses_offset_pagination(monkeypatch: pytest.MonkeyPatch) -> None:

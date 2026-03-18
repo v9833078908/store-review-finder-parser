@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import html as html_module
 import json
+import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -102,6 +103,13 @@ def _get_playwright_user_data_dir(app_id: str) -> Path:
     return profile_root / app_id
 
 
+def _get_playwright_browser_launch_kwargs() -> dict[str, Any]:
+    executable_path = str(os.getenv("PLAYWRIGHT_BROWSER_EXECUTABLE") or "").strip()
+    if executable_path:
+        return {"executable_path": executable_path}
+    return {"channel": "chrome"}
+
+
 async def _warm_playwright_page(page: Any, *, target_url: str) -> None:
     warmup_urls = (
         "https://yandex.ru/",
@@ -129,7 +137,6 @@ async def _get_playwright_page_content(url: str, *, country: str) -> str:
     async with async_playwright() as playwright:
         context = await playwright.chromium.launch_persistent_context(
             str(user_data_dir),
-            channel="chrome",
             headless=True,
             args=["--disable-blink-features=AutomationControlled"],
             locale=locale,
@@ -138,6 +145,7 @@ async def _get_playwright_page_content(url: str, *, country: str) -> str:
             screen={"width": 1440, "height": 900},
             device_scale_factor=2,
             extra_http_headers={"Accept-Language": f"{country},en;q=0.9"},
+            **_get_playwright_browser_launch_kwargs(),
         )
         try:
             await context.add_init_script(

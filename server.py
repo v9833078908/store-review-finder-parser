@@ -29,6 +29,7 @@ from observability import init_observability, observe, shutdown_observability, u
 from report_builder import build_unified_report
 from scraper import REGION_LANGUAGE_SWEEP, fetch_reviews
 from sources.app_store import APP_STORE_MAX_REVIEWS, fetch_app_store_reviews, resolve_app_store_input, validate_app_store_id
+from sources.vk_play import extract_vk_play_slug, fetch_vk_play_reviews
 from sources.yandex_games import YandexGamesFallbackNeeded, extract_yandex_games_app_id, fetch_yandex_games_reviews
 from storage import list_run_artifacts, load_run_artifact, save_run_artifact
 from utils import log_event, safe_name
@@ -259,6 +260,13 @@ def _resolve_dashboard_params(
         # for the direct game URL. We keep the transport pinned to ru because it is the most stable
         # locale for the current bootstrap/fallback flow.
         return "ru", None, None, None, ["ru"], max_reviews, ["ru"]
+    if store == "vk_play":
+        window_mode, window_from, window_to = _resolve_window(period, from_date, to_date)
+        fetch_langs = _parse_langs(langs_raw or "ru")
+        fetch_max_reviews = WINDOW_FETCH_LIMIT if window_mode else max_reviews
+        return normalized_country, window_mode, window_from, window_to, fetch_langs, fetch_max_reviews, [
+            normalized_country
+        ]
 
     window_mode, window_from, window_to = _resolve_window(period, from_date, to_date)
 
@@ -290,11 +298,12 @@ async def _fetch_all_reviews(
 ) -> tuple[list[dict[str, Any]], dict[str, Any], str | None, str | None]:
     """Fetch reviews from all countries, merge, apply window filter.
 
-    Returns (reviews, app_metadata, app_name_from_payload, fetched_at).
+    Returns (reviews, app_metadata, app_name_from_payload, fetched_at, canonical_package_name).
     """
     combined_reviews: list[dict[str, Any]] = []
     app_metadata: dict[str, Any] = {}
     app_name_from_payload: str | None = None
+    canonical_package_name: str | None = None
 
     if len(fetch_countries) > 1:
         await _emit(
@@ -335,6 +344,14 @@ async def _fetch_all_reviews(
                     force_refresh=force_refresh,
                     cache_ttl=timedelta(hours=cache_ttl_hours),
                 )
+            elif store == "vk_play":
+                payload = await fetch_vk_play_reviews(
+                    url=url,
+                    max_reviews=per_country_fetch_limit,
+                    lang=(fetch_langs[0] if fetch_langs else "ru"),
+                    force_refresh=force_refresh,
+                    cache_ttl=timedelta(hours=cache_ttl_hours),
+                )
             else:
                 payload = await asyncio.to_thread(
                     fetch_reviews,
@@ -372,6 +389,10 @@ async def _fetch_all_reviews(
             app_metadata = result.get("app_metadata") or {}
         if not app_name_from_payload:
             app_name_from_payload = result.get("app_name")
+        if not canonical_package_name:
+            payload_app_id = result.get("app_id")
+            if isinstance(payload_app_id, str) and payload_app_id.strip():
+                canonical_package_name = payload_app_id.strip()
 
     raw_reviews = _merge_reviews_unique(combined_reviews)
     log_event(
@@ -420,7 +441,7 @@ async def _fetch_all_reviews(
         ),
         None,
     )
-    return reviews, app_metadata, app_name_from_payload, fetched_at
+    return reviews, app_metadata, app_name_from_payload, fetched_at, canonical_package_name
 
 
 async def _run_pipeline_and_build_report(
@@ -665,6 +686,9 @@ async def _generate_dashboard(
     elif store == "yandex_games":
         package_name = extract_yandex_games_app_id(url)
         resolved_title = None
+    elif store == "vk_play":
+        package_name = extract_vk_play_slug(url)
+        resolved_title = None
     else:
         package_name, resolved_title = parse_google_play_url(
             url,
@@ -682,7 +706,7 @@ async def _generate_dashboard(
     await _emit({"type": "status", "step": "resolved", "package": package_name, "title": resolved_title})
     await _emit({"type": "status", "step": "fetching"})
 
-    reviews, app_metadata, app_name_from_payload, fetched_at = await _fetch_all_reviews(
+    reviews, app_metadata, app_name_from_payload, fetched_at, canonical_package_name = await _fetch_all_reviews(
         store=store,
         url=url,
         package_name=package_name,
@@ -697,6 +721,8 @@ async def _generate_dashboard(
         cache_ttl_hours=cache_ttl_hours,
         _emit=_emit,
     )
+    if canonical_package_name:
+        package_name = canonical_package_name
     app_name = str(app_name_from_payload or package_name)
 
     await _emit({"type": "status", "step": "fetched", "count": len(reviews)})
@@ -753,7 +779,7 @@ async def health() -> dict[str, str]:
 
 @app.get("/api/report/sync")
 async def report_sync(
-    store: str = Query("google_play", pattern="^(google_play|app_store|yandex_games)$"),
+    store: str = Query("google_play", pattern="^(google_play|app_store|yandex_games|vk_play)$"),
     url: str = Query(..., description="Store URL or app identifier"),
     max_reviews: int = Query(300, ge=1, le=5000),
     langs: str = Query("en,ru"),
@@ -792,7 +818,7 @@ async def report_sync(
 @app.get("/api/report")
 async def report_sse(
     request: Request,
-    store: str = Query("google_play", pattern="^(google_play|app_store|yandex_games)$"),
+    store: str = Query("google_play", pattern="^(google_play|app_store|yandex_games|vk_play)$"),
     url: str = Query(..., description="Store URL or app identifier"),
     max_reviews: int = Query(300, ge=1, le=5000),
     langs: str = Query("en,ru"),

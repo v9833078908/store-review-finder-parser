@@ -62,3 +62,4 @@ temp/
 # --- Prevent accidental embedded repos ---
 frontend/.git/
 lead-finder/.git/
+.worktrees

@@ -22,13 +22,14 @@ export default function ReportPage() {
 
   const request = useMemo(
     () => ({
-      store: (searchParams.get("store") as "google_play" | "app_store" | "yandex_games" | null) || "google_play",
+      store: (searchParams.get("store") as "google_play" | "app_store" | "yandex_games" | "vk_play" | null) || "google_play",
       url: searchParams.get("url") || "",
       country: searchParams.get("country") || "",
       period:
         (searchParams.get("period") as "7d" | "14d" | "30d" | "90d" | "custom" | null) || "14d",
       from: searchParams.get("from") || undefined,
       to: searchParams.get("to") || undefined,
+      langs: searchParams.get("langs") || undefined,
       source: (searchParams.get("source") as "direct_url" | "catalog" | null) || "direct_url",
       appId: searchParams.get("app_id") || undefined,
     }),

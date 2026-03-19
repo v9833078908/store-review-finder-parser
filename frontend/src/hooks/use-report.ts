@@ -4,12 +4,13 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import type { ReportSseEvent, ReportSummaryPayload } from "@/lib/api-types"
 
 export interface ReportRequest {
-  store?: "google_play" | "app_store" | "yandex_games"
+  store?: "google_play" | "app_store" | "yandex_games" | "vk_play"
   url: string
   country: string
   period: "7d" | "14d" | "30d" | "90d" | "custom"
   from?: string
   to?: string
+  langs?: string
   source?: "direct_url" | "catalog"
   appId?: string
 }
@@ -57,6 +58,9 @@ export function useReport() {
       if (request.period === "custom" && request.from && request.to) {
         query.set("from", request.from)
         query.set("to", request.to)
+      }
+      if (request.langs) {
+        query.set("langs", request.langs)
       }
       query.set("source", request.source || "direct_url")
       if (request.appId) {

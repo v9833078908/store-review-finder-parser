@@ -3,7 +3,7 @@ export interface Product {
   id: string;
   name: string;
   packageId: string;
-  platform: "google_play" | "app_store" | "yandex_games";
+  platform: "google_play" | "app_store" | "yandex_games" | "vk_play";
   rating: number;
   totalReviews: number;
 }

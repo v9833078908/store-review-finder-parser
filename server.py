@@ -617,6 +617,279 @@ def _save_and_log_result(
     }
 
 
+async def _fetch_source_payload(
+    *,
+    source_request: dict[str, Any],
+    progress_callback: Callable[[dict[str, Any]], Awaitable[None] | None] | None = None,
+) -> dict[str, Any]:
+    store = str(source_request.get("store") or "").strip()
+    url = str(source_request.get("url") or "").strip()
+    if not store:
+        raise ValueError("Source request is missing store.")
+    if not url:
+        raise ValueError("Source request is missing url.")
+
+    max_reviews = int(source_request.get("max_reviews") or 300)
+    langs_raw = source_request.get("langs")
+    country = str(source_request.get("country") or "us")
+    period = source_request.get("period")
+    from_date = source_request.get("from")
+    to_date = source_request.get("to")
+    selected_app_id = source_request.get("app_id")
+    force_refresh = bool(source_request.get("force_refresh"))
+    cache_ttl_hours = int(source_request.get("cache_ttl_hours") or 1)
+
+    normalized_country, window_mode, window_from, window_to, fetch_langs, fetch_max_reviews, fetch_countries = (
+        _resolve_dashboard_params(
+            url=url,
+            max_reviews=max_reviews,
+            langs_raw=langs_raw if isinstance(langs_raw, str) else None,
+            country=country,
+            period=period if isinstance(period, str) else None,
+            from_date=from_date if isinstance(from_date, str) else None,
+            to_date=to_date if isinstance(to_date, str) else None,
+            store=store,
+        )
+    )
+
+    fetch_country = fetch_countries[0]
+    fetch_lang = fetch_langs[0]
+
+    if progress_callback:
+        maybe_awaitable = progress_callback({"type": "status", "step": f"fetching:{store}"})
+        if asyncio.iscoroutine(maybe_awaitable):
+            await maybe_awaitable
+
+    if store == "app_store":
+        package_name = _resolve_app_store_identity(url, str(selected_app_id) if selected_app_id else None)
+        payload = await fetch_app_store_reviews(
+            app_id=package_name,
+            max_reviews=fetch_max_reviews,
+            country=fetch_country,
+            force_refresh=force_refresh,
+            cache_ttl=timedelta(hours=cache_ttl_hours),
+        )
+    elif store == "yandex_games":
+        payload = await fetch_yandex_games_reviews(
+            url=url,
+            max_reviews=fetch_max_reviews,
+            country=fetch_country,
+            force_refresh=force_refresh,
+            cache_ttl=timedelta(hours=cache_ttl_hours),
+        )
+        package_name = str(payload.get("app_id") or extract_yandex_games_app_id(url))
+    elif store == "vk_play":
+        payload = await fetch_vk_play_reviews(
+            url=url,
+            max_reviews=fetch_max_reviews,
+            lang=fetch_lang,
+            force_refresh=force_refresh,
+            cache_ttl=timedelta(hours=cache_ttl_hours),
+        )
+        package_name = str(payload.get("app_id") or "")
+    else:
+        package_name, _ = parse_google_play_url(
+            url,
+            country=fetch_country,
+            lang=fetch_lang,
+        )
+        payload = await asyncio.to_thread(
+            fetch_reviews,
+            package_name=package_name,
+            max_reviews=fetch_max_reviews,
+            langs=fetch_langs,
+            country=fetch_country,
+            force_refresh=force_refresh,
+            cache_ttl=timedelta(hours=cache_ttl_hours),
+        )
+
+    reviews = list(payload.get("reviews") or [])
+    if window_mode and window_from and window_to:
+        reviews = _filter_reviews_for_window(
+            reviews=reviews,
+            window_from=window_from,
+            window_to=window_to,
+            sample_limit=WINDOW_SAMPLE_LIMIT,
+        )
+
+    normalized_reviews: list[dict[str, Any]] = []
+    for review in reviews:
+        if isinstance(review, dict):
+            normalized_review = dict(review)
+            normalized_review["source"] = store
+            normalized_reviews.append(normalized_review)
+
+    return {
+        "store": store,
+        "package_name": package_name,
+        "app_name": payload.get("app_name") or package_name,
+        "fetch_langs": fetch_langs,
+        "fetch_countries": fetch_countries,
+        "normalized_country": normalized_country,
+        "app_metadata": payload.get("app_metadata") or {},
+        "fetched_at": payload.get("fetched_at"),
+        "reviews": normalized_reviews,
+        "window_mode": window_mode,
+        "window_from": window_from,
+        "window_to": window_to,
+    }
+
+
+async def _generate_multi_source_dashboard(
+    *,
+    sources: list[dict[str, Any]],
+    progress_callback: Callable[[dict[str, Any]], Awaitable[None] | None] | None = None,
+) -> dict[str, Any]:
+    stores_requested = [str(source.get("store") or "").strip() for source in sources if str(source.get("store") or "").strip()]
+    if not stores_requested:
+        raise LookupError("No sources selected.")
+
+    async def _fetch_one(source_request: dict[str, Any]) -> dict[str, Any]:
+        store_name = str(source_request.get("store") or "").strip() or "unknown"
+        try:
+            payload = await _fetch_source_payload(source_request=source_request, progress_callback=progress_callback)
+            return {"status": "ok", "store": store_name, "payload": payload}
+        except Exception as exc:
+            return {"status": "error", "store": store_name, "detail": str(exc)}
+
+    results = await asyncio.gather(*[_fetch_one(source) for source in sources], return_exceptions=True)
+
+    successful_payloads: dict[str, dict[str, Any]] = {}
+    source_errors: list[dict[str, str]] = []
+    aggregated_reviews: list[dict[str, Any]] = []
+    app_metadata: dict[str, Any] = {}
+    app_name = "Combined sources"
+    fetched_at: str | None = None
+    window_mode: str | None = None
+    window_from: datetime | None = None
+    window_to: datetime | None = None
+
+    for result in results:
+        if isinstance(result, Exception):
+            source_errors.append({"store": "unknown", "detail": str(result)})
+            continue
+        store_name = str(result.get("store") or "").strip()
+        if not store_name:
+            continue
+        if result.get("status") == "error":
+            source_errors.append({"store": store_name, "detail": str(result.get("detail") or "")})
+            continue
+        payload = result.get("payload") or {}
+        successful_payloads[store_name] = payload
+        for review in payload.get("reviews") or []:
+            review_copy = dict(review)
+            review_copy["source"] = store_name
+            aggregated_reviews.append(review_copy)
+        if not app_metadata:
+            app_metadata = payload.get("app_metadata") or {}
+        if app_name == "Combined sources" and payload.get("app_name"):
+            app_name = str(payload.get("app_name"))
+        if not fetched_at and isinstance(payload.get("fetched_at"), str):
+            fetched_at = payload.get("fetched_at")
+        if window_mode is None:
+            window_mode = payload.get("window_mode")
+            window_from = payload.get("window_from")
+            window_to = payload.get("window_to")
+
+    stores_succeeded = list(successful_payloads.keys())
+    stores_failed = [store for store in stores_requested if store not in successful_payloads]
+
+    if not stores_succeeded:
+        raise LookupError("All selected stores failed")
+
+    if progress_callback:
+        maybe_awaitable = progress_callback(
+            {
+                "type": "status",
+                "step": f"fetched:{len(stores_succeeded)}/{len(stores_requested)} sources",
+            }
+        )
+        if asyncio.iscoroutine(maybe_awaitable):
+            await maybe_awaitable
+
+    reviews = _merge_reviews_unique(aggregated_reviews)
+    if not reviews:
+        raise LookupError("No reviews found in the selected sources.")
+
+    started = time.perf_counter()
+    pipeline_result, markdown, report_path, current_version, previous_version = (
+        await _run_pipeline_and_build_report(
+            reviews=reviews,
+            app_name=app_name,
+            app_metadata=app_metadata,
+            package_name="multi_source",
+            window_mode=window_mode,
+            window_from=window_from,
+            window_to=window_to,
+            progress_callback=progress_callback,
+        )
+    )
+
+    artifact_path = save_run_artifact(
+        package_name="multi_source",
+        app_name=app_name,
+        artifact={
+            "run_id": pipeline_result["run_id"],
+            "fetched_at": fetched_at,
+            "stores_requested": stores_requested,
+            "stores_succeeded": stores_succeeded,
+            "stores_failed": stores_failed,
+            "source_payloads": successful_payloads,
+            "source_errors": source_errors,
+            "app_metadata": app_metadata,
+            "current_version": current_version,
+            "previous_version": previous_version,
+            "stats": pipeline_result["stats"],
+            "themes": pipeline_result["themes"],
+            "classified": pipeline_result["classified"],
+            "alerts": pipeline_result["alerts"],
+            "category_counts": pipeline_result["category_counts"],
+            "synthesis_markdown": pipeline_result["synthesis_markdown"],
+            "report_layers": pipeline_result["report_layers"],
+            "model": pipeline_result["model"],
+            "prompt_versions": pipeline_result["prompt_versions"],
+            "report_path": str(report_path),
+            "source": "api",
+            "store": "multi_source",
+            "feedback_source": "multi_source",
+            "dashboard_config_snapshot": load_dashboard_config("multi_source", "producer"),
+            "launch_context": {
+                "source": "multi_source",
+                "selected_app_id": None,
+                "input_url": None,
+            },
+            "window_mode": window_mode or "legacy",
+            "window_from": window_from.isoformat() if window_from else None,
+            "window_to": window_to.isoformat() if window_to else None,
+            "sample_limit": WINDOW_SAMPLE_LIMIT if window_mode else len(reviews),
+            "reviews_selected": len(reviews),
+            "reviews": reviews,
+        },
+    )
+
+    return {
+        "run_id": pipeline_result["run_id"],
+        "package_name": "multi_source",
+        "app_name": app_name,
+        "report_path": str(report_path),
+        "artifact_path": str(artifact_path),
+        "markdown": markdown,
+        "report_layers": pipeline_result["report_layers"],
+        "stats": pipeline_result["stats"],
+        "category_counts": pipeline_result["category_counts"],
+        "alerts_count": len(pipeline_result["alerts"]),
+        "window_mode": window_mode or "legacy",
+        "window_from": window_from.isoformat() if window_from else None,
+        "window_to": window_to.isoformat() if window_to else None,
+        "sample_limit": WINDOW_SAMPLE_LIMIT if window_mode else len(reviews),
+        "reviews_selected": len(reviews),
+        "stores_requested": stores_requested,
+        "stores_succeeded": stores_succeeded,
+        "stores_failed": stores_failed,
+        "source_errors": source_errors,
+    }
+
+
 def _resolve_app_store_identity(url: str, selected_app_id: str | None) -> str:
     if selected_app_id:
         return validate_app_store_id(selected_app_id)

@@ -247,6 +247,7 @@ export default function SearchAppPage() {
   const reportHref = useMemo(() => {
     if (!selectedCandidate) return ""
     if (!usesDirectUrlFlow && (!isCountryValid || !isCustomWindowValid)) return ""
+    if (usesYandexGamesFlow && !isCustomWindowValid) return ""
     if (usesVkPlayFlow && !reportLangs.trim()) return ""
     const query = new URLSearchParams()
     query.set("url", selectedCandidate.url)
@@ -258,10 +259,8 @@ export default function SearchAppPage() {
     if (usesVkPlayFlow) {
       query.set("langs", reportLangs.trim())
     }
-    if (!usesYandexGamesFlow) {
-      query.set("period", reportPeriod)
-    }
-    if (!usesYandexGamesFlow && reportPeriod === "custom" && reportCustomFrom && reportCustomTo) {
+    query.set("period", reportPeriod)
+    if (reportPeriod === "custom" && reportCustomFrom && reportCustomTo) {
       query.set("from", reportCustomFrom)
       query.set("to", reportCustomTo)
     }
@@ -328,7 +327,7 @@ export default function SearchAppPage() {
               </Select>
             </div>
 
-            <div className={`grid grid-cols-1 gap-3 ${usesYandexGamesFlow ? "xl:grid-cols-[1fr_auto]" : usesVkPlayFlow ? "xl:grid-cols-[1fr_120px_160px_auto]" : "xl:grid-cols-[1fr_220px_160px_auto]"}`}>
+            <div className={`grid grid-cols-1 gap-3 ${usesYandexGamesFlow ? "xl:grid-cols-[1fr_160px_auto]" : usesVkPlayFlow ? "xl:grid-cols-[1fr_120px_160px_auto]" : "xl:grid-cols-[1fr_220px_160px_auto]"}`}>
               <Input
                 value={playInput}
                 onChange={(event) => setPlayInput(event.target.value)}
@@ -375,20 +374,18 @@ export default function SearchAppPage() {
                 />
               )}
 
-              {!usesYandexGamesFlow && (
-                <Select value={reportPeriod} onValueChange={(value) => setReportPeriod(value as DatePreset)}>
-                  <SelectTrigger className="h-11">
-                    <SelectValue placeholder="Period" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="7d">Last 7 days</SelectItem>
-                    <SelectItem value="14d">Last 14 days</SelectItem>
-                    <SelectItem value="30d">Last 30 days</SelectItem>
-                    <SelectItem value="90d">Last 90 days</SelectItem>
-                    <SelectItem value="custom">Custom</SelectItem>
-                  </SelectContent>
-                </Select>
-              )}
+              <Select value={reportPeriod} onValueChange={(value) => setReportPeriod(value as DatePreset)}>
+                <SelectTrigger className="h-11">
+                  <SelectValue placeholder="Period" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="7d">Last 7 days</SelectItem>
+                  <SelectItem value="14d">Last 14 days</SelectItem>
+                  <SelectItem value="30d">Last 30 days</SelectItem>
+                  <SelectItem value="90d">Last 90 days</SelectItem>
+                  <SelectItem value="custom">Custom</SelectItem>
+                </SelectContent>
+              </Select>
 
               <Button
                 onClick={resolveInput}
@@ -399,7 +396,7 @@ export default function SearchAppPage() {
               </Button>
             </div>
 
-            {!usesYandexGamesFlow && reportPeriod === "custom" && (
+            {reportPeriod === "custom" && (
               <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <Input
                   type="date"
@@ -418,7 +415,7 @@ export default function SearchAppPage() {
               {reportStore === "app_store"
                 ? "Numeric App Store app_id only · Up to 500 newest reviews from the selected period and region"
                 : reportStore === "yandex_games"
-                  ? "Direct Yandex Games URLs only · The scraper loads all available reviews from the game page"
+                  ? "Direct Yandex Games URLs only · The scraper fetches the available feed and keeps reviews only for the selected period"
                   : reportStore === "vk_play"
                     ? "Direct VK Play URLs only · The scraper uses the selected language and selected date window"
                   : "Google Play Store URLs only · Up to 1,000 newest reviews from the selected period and region"}

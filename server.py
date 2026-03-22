@@ -256,10 +256,11 @@ def _resolve_dashboard_params(
     """Normalise request parameters; return resolved fetch config."""
     normalized_country = _normalize_region(country)
     if store == "yandex_games":
-        # Yandex Games MVP ignores region/window selection and fetches the available review feed
-        # for the direct game URL. We keep the transport pinned to ru because it is the most stable
-        # locale for the current bootstrap/fallback flow.
-        return "ru", None, None, None, ["ru"], max_reviews, ["ru"]
+        # Yandex Games still fetches the available feed for the direct game URL, but the selected
+        # date window is applied after fetch in the shared backend filtering path.
+        window_mode, window_from, window_to = _resolve_window(period, from_date, to_date)
+        fetch_max_reviews = WINDOW_FETCH_LIMIT if window_mode else max_reviews
+        return "ru", window_mode, window_from, window_to, ["ru"], fetch_max_reviews, ["ru"]
     if store == "vk_play":
         window_mode, window_from, window_to = _resolve_window(period, from_date, to_date)
         fetch_langs = _parse_langs(langs_raw or "ru")

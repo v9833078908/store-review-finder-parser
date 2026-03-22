@@ -213,7 +213,7 @@ def test_report_sync_contract_accepts_vk_play(monkeypatch) -> None:
     assert payload["package_name"] == "46035"
 
 
-def test_resolve_dashboard_params_ignores_window_for_yandex_games() -> None:
+def test_resolve_dashboard_params_keeps_window_for_yandex_games() -> None:
     normalized_country, window_mode, window_from, window_to, fetch_langs, fetch_max_reviews, fetch_countries = (
         server._resolve_dashboard_params(
             url="https://yandex.ru/games/app/423744",
@@ -228,11 +228,11 @@ def test_resolve_dashboard_params_ignores_window_for_yandex_games() -> None:
     )
 
     assert normalized_country == "ru"
-    assert window_mode is None
-    assert window_from is None
-    assert window_to is None
+    assert window_mode == "14d"
+    assert window_from is not None
+    assert window_to is not None
     assert fetch_langs == ["ru"]
-    assert fetch_max_reviews == 300
+    assert fetch_max_reviews == server.WINDOW_FETCH_LIMIT
     assert fetch_countries == ["ru"]
 
 

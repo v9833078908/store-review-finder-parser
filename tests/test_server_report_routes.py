@@ -213,6 +213,59 @@ def test_report_sync_contract_accepts_vk_play(monkeypatch) -> None:
     assert payload["package_name"] == "46035"
 
 
+def test_multi_source_report_sync_contract(monkeypatch) -> None:
+    async def fake_generate_multi_source_dashboard(**kwargs):
+        assert len(kwargs["sources"]) == 2
+        assert kwargs["sources"][0]["store"] == "google_play"
+        assert kwargs["sources"][1]["store"] == "yandex_games"
+        return {
+            "run_id": "run-multi",
+            "package_name": "multi_source",
+            "app_name": "Combined sources",
+            "report_path": "/tmp/report.md",
+            "artifact_path": "/tmp/run.json",
+            "markdown": "# Combined Report",
+            "report_layers": {},
+            "stats": {},
+            "category_counts": {},
+            "alerts_count": 0,
+            "stores_requested": ["google_play", "yandex_games"],
+            "stores_succeeded": ["google_play"],
+            "stores_failed": ["yandex_games"],
+            "source_errors": [{"store": "yandex_games", "detail": "captcha"}],
+        }
+
+    monkeypatch.setattr(server, "_generate_multi_source_dashboard", fake_generate_multi_source_dashboard)
+
+    client = TestClient(server.app)
+    response = client.post(
+        "/api/report/multi/sync",
+        json={
+            "sources": [
+                {
+                    "store": "google_play",
+                    "url": "https://play.google.com/store/apps/details?id=com.example",
+                    "country": "us",
+                    "langs": "en,ru",
+                    "period": "14d",
+                },
+                {
+                    "store": "yandex_games",
+                    "url": "https://yandex.ru/games/app/423744",
+                    "country": "ru",
+                    "period": "14d",
+                },
+            ]
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["run_id"] == "run-multi"
+    assert payload["stores_requested"] == ["google_play", "yandex_games"]
+    assert payload["stores_failed"] == ["yandex_games"]
+
+
 def test_resolve_dashboard_params_keeps_window_for_yandex_games() -> None:
     normalized_country, window_mode, window_from, window_to, fetch_langs, fetch_max_reviews, fetch_countries = (
         server._resolve_dashboard_params(

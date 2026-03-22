@@ -1089,6 +1089,22 @@ async def report_sync(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
+@app.post("/api/report/multi/sync")
+async def multi_report_sync(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    sources = payload.get("sources")
+    if not isinstance(sources, list) or not sources:
+        raise HTTPException(status_code=422, detail="Multi-source report requires a non-empty 'sources' array.")
+
+    try:
+        return await _generate_multi_source_dashboard(sources=sources)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except YandexGamesFallbackNeeded as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
 @app.get("/api/report")
 async def report_sse(
     request: Request,

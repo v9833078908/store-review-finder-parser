@@ -15,8 +15,17 @@ import { listAllRegions } from "@/lib/regions"
 
 type ScanState = "idle" | "scanning" | "done" | "error"
 type ReportStore = "google_play" | "app_store" | "yandex_games" | "vk_play"
+type CombinedStoreConfig = {
+  url: string
+  country?: string
+  period: DatePreset
+  from: string
+  to: string
+  langs?: string
+}
 const YANDEX_GAMES_URL_RE = /^https:\/\/yandex\.ru\/games\/app\/(\d+)(?:[/?#].*)?$/i
 const VK_PLAY_URL_RE = /^https:\/\/vkplay\.ru\/play\/game\/([^/?#]+)(?:[/?#].*)?$/i
+const COMBINED_STORE_OPTIONS: ReportStore[] = ["google_play", "app_store", "yandex_games", "vk_play"]
 
 function resolveErrorMessage(payload: unknown): string {
   if (!payload || typeof payload !== "object") return "Resolve request failed"
@@ -45,6 +54,13 @@ export default function SearchAppPage() {
   const [resolveData, setResolveData] = useState<ResolveResponse | null>(null)
   const [resolveError, setResolveError] = useState<string | null>(null)
   const [selectedAppId, setSelectedAppId] = useState("")
+  const [combinedStores, setCombinedStores] = useState<ReportStore[]>(["google_play", "yandex_games"])
+  const [combinedConfigs, setCombinedConfigs] = useState<Record<ReportStore, CombinedStoreConfig>>({
+    google_play: { url: "", country: "us", period: "14d", from: "", to: "", langs: "en,ru" },
+    app_store: { url: "", country: "us", period: "14d", from: "", to: "" },
+    yandex_games: { url: "", period: "14d", from: "", to: "" },
+    vk_play: { url: "", period: "14d", from: "", to: "", langs: "ru" },
+  })
 
   const regionOptions = useMemo(() => listAllRegions("en"), [])
   const regionLookup = useMemo(() => new Map(regionOptions.map((item) => [item.code, item.name])), [regionOptions])
@@ -55,6 +71,83 @@ export default function SearchAppPage() {
     || (Boolean(reportCustomFrom) && Boolean(reportCustomTo) && reportCustomFrom <= reportCustomTo)
 
   const eventSourceRef = useRef<EventSource | null>(null)
+
+  const updateCombinedConfig = (store: ReportStore, patch: Partial<CombinedStoreConfig>) => {
+    setCombinedConfigs((current) => ({
+      ...current,
+      [store]: {
+        ...current[store],
+        ...patch,
+      },
+    }))
+  }
+
+  const toggleCombinedStore = (store: ReportStore) => {
+    setCombinedStores((current) => {
+      if (current.includes(store)) {
+        return current.filter((item) => item !== store)
+      }
+      return [...current, store]
+    })
+  }
+
+  const combinedReportHref = useMemo(() => {
+    try {
+      if (!combinedStores.length) return ""
+      const sources = combinedStores.map((store) => {
+        const config = combinedConfigs[store]
+        const trimmedUrl = config.url.trim()
+        if (!trimmedUrl) {
+          throw new Error(`Missing input for ${store}`)
+        }
+        if (config.period === "custom" && (!config.from || !config.to || config.from > config.to)) {
+          throw new Error(`Invalid custom period for ${store}`)
+        }
+        if ((store === "google_play" || store === "app_store") && !config.country?.trim()) {
+          throw new Error(`Missing country for ${store}`)
+        }
+        if (store === "app_store" && !/^\d+$/.test(trimmedUrl)) {
+          throw new Error("App Store input must be a numeric app_id.")
+        }
+        if (store === "yandex_games" && !YANDEX_GAMES_URL_RE.test(trimmedUrl)) {
+          throw new Error("Yandex Games input must be a direct game URL.")
+        }
+        if (store === "vk_play" && !VK_PLAY_URL_RE.test(trimmedUrl)) {
+          throw new Error("VK Play input must be a direct game URL.")
+        }
+
+        const payload: Record<string, string> = {
+          store,
+          url: trimmedUrl,
+          period: config.period,
+        }
+        if (store === "app_store") {
+          payload.app_id = trimmedUrl
+          payload.url = `https://apps.apple.com/app/id${trimmedUrl}`
+        }
+        if (store === "google_play" || store === "app_store") {
+          payload.country = String(config.country || "us").trim().toLowerCase()
+        } else {
+          payload.country = "ru"
+        }
+        if (store === "google_play" || store === "vk_play") {
+          payload.langs = String(config.langs || (store === "vk_play" ? "ru" : "en,ru")).trim()
+        }
+        if (config.period === "custom") {
+          payload.from = config.from
+          payload.to = config.to
+        }
+        return payload
+      })
+
+      const query = new URLSearchParams()
+      query.set("store", "multi_source")
+      query.set("sources", JSON.stringify(sources))
+      return `/report?${query.toString()}`
+    } catch {
+      return ""
+    }
+  }, [combinedConfigs, combinedStores])
 
   const handleScan = (params: ScanParams) => {
     setLastScanParams(params)
@@ -488,6 +581,137 @@ export default function SearchAppPage() {
                 </div>
               </div>
             )}
+          </div>
+
+          <div className="rounded-2xl border bg-white p-8 shadow-sm">
+            <h2 className="mb-1 text-lg font-bold tracking-tight">Generate Combined Report</h2>
+            <p className="mb-5 text-sm text-muted-foreground">
+              Select multiple stores, provide one source input per store, and build a single aggregated report.
+            </p>
+
+            <div className="mb-5 flex flex-wrap gap-3">
+              {COMBINED_STORE_OPTIONS.map((store) => {
+                const checked = combinedStores.includes(store)
+                return (
+                  <label
+                    key={store}
+                    className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm ${
+                      checked ? "border-amber-300 bg-amber-50/60" : "hover:bg-muted/40"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleCombinedStore(store)}
+                      className="accent-amber-500"
+                    />
+                    <span>
+                      {store === "google_play"
+                        ? "Google Play"
+                        : store === "app_store"
+                          ? "App Store"
+                          : store === "yandex_games"
+                            ? "Yandex Games"
+                            : "VK Play"}
+                    </span>
+                  </label>
+                )
+              })}
+            </div>
+
+            <div className="space-y-4">
+              {combinedStores.map((store) => {
+                const config = combinedConfigs[store]
+                return (
+                  <div key={store} className="rounded-xl border bg-slate-50/50 p-4">
+                    <div className="mb-3 text-sm font-semibold">
+                      {store === "google_play"
+                        ? "Google Play"
+                        : store === "app_store"
+                          ? "App Store"
+                          : store === "yandex_games"
+                            ? "Yandex Games"
+                            : "VK Play"}
+                    </div>
+                    <div className={`grid grid-cols-1 gap-3 ${store === "google_play" ? "xl:grid-cols-[1fr_140px_160px]" : store === "app_store" ? "xl:grid-cols-[1fr_140px_160px]" : store === "vk_play" ? "xl:grid-cols-[1fr_120px_160px]" : "xl:grid-cols-[1fr_160px]"}`}>
+                      <Input
+                        value={config.url}
+                        onChange={(event) => updateCombinedConfig(store, { url: event.target.value })}
+                        placeholder={
+                          store === "google_play"
+                            ? "https://play.google.com/store/apps/details?id=com.example"
+                            : store === "app_store"
+                              ? "123456789"
+                              : store === "yandex_games"
+                                ? "https://yandex.ru/games/app/423744"
+                                : "https://vkplay.ru/play/game/pirate-ships-46035"
+                        }
+                        className="h-11"
+                      />
+
+                      {(store === "google_play" || store === "app_store") && (
+                        <Input
+                          list="report-country-options"
+                          value={config.country || "us"}
+                          onChange={(event) => updateCombinedConfig(store, { country: event.target.value.toLowerCase() })}
+                          placeholder="Region"
+                          className="h-11"
+                        />
+                      )}
+
+                      {store === "vk_play" && (
+                        <Input
+                          value={config.langs || "ru"}
+                          onChange={(event) => updateCombinedConfig(store, { langs: event.target.value.toLowerCase() })}
+                          placeholder="Lang (e.g. ru)"
+                          className="h-11"
+                        />
+                      )}
+
+                      <Select value={config.period} onValueChange={(value) => updateCombinedConfig(store, { period: value as DatePreset })}>
+                        <SelectTrigger className="h-11">
+                          <SelectValue placeholder="Period" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="7d">Last 7 days</SelectItem>
+                          <SelectItem value="14d">Last 14 days</SelectItem>
+                          <SelectItem value="30d">Last 30 days</SelectItem>
+                          <SelectItem value="90d">Last 90 days</SelectItem>
+                          <SelectItem value="custom">Custom</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {config.period === "custom" && (
+                      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <Input
+                          type="date"
+                          value={config.from}
+                          onChange={(event) => updateCombinedConfig(store, { from: event.target.value })}
+                        />
+                        <Input
+                          type="date"
+                          value={config.to}
+                          onChange={(event) => updateCombinedConfig(store, { to: event.target.value })}
+                        />
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+
+            <div className="mt-5">
+              <Button
+                asChild
+                className="bg-amber-500 font-semibold text-white shadow-sm hover:bg-amber-600"
+                disabled={!combinedReportHref}
+              >
+                <a href={combinedReportHref || "#"} target="_blank" rel="noopener noreferrer">
+                  Generate Combined Report
+                </a>
+              </Button>
+            </div>
           </div>
 
           {/* Secondary — Bulk Scan */}

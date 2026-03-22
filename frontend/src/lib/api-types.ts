@@ -71,7 +71,7 @@ export interface RunArtifact {
   run_id: string
   package_name: string
   app_name: string
-  store?: "google_play" | "app_store" | "yandex_games" | "vk_play"
+  store?: "google_play" | "app_store" | "yandex_games" | "vk_play" | "multi_source"
   fetched_at?: string
   saved_at?: string
   country?: string
@@ -100,13 +100,17 @@ export interface RunArtifact {
     ratings?: number
     score?: number
   }
+  stores_requested?: string[]
+  stores_succeeded?: string[]
+  stores_failed?: string[]
+  source_errors?: Array<{ store: string; detail: string }>
 }
 
 export interface RunHistoryItem {
   run_id: string
   package_name: string
   app_name: string
-  store?: "google_play" | "app_store" | "yandex_games" | "vk_play"
+  store?: "google_play" | "app_store" | "yandex_games" | "vk_play" | "multi_source"
   saved_at?: string
   country?: string
   window_mode?: string
@@ -136,6 +140,10 @@ export interface ReportSummaryPayload {
   window_to?: string | null
   sample_limit?: number
   reviews_selected?: number
+  stores_requested?: string[]
+  stores_succeeded?: string[]
+  stores_failed?: string[]
+  source_errors?: Array<{ store: string; detail: string }>
 }
 
 export type ReportSseEvent =

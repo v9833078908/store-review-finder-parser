@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import type { ReportSseEvent, ReportSummaryPayload } from "@/lib/api-types"
 
 export interface ReportRequest {
-  store?: "google_play" | "app_store" | "yandex_games" | "vk_play"
+  store?: "google_play" | "app_store" | "yandex_games" | "vk_play" | "multi_source"
   url: string
   country: string
   period: "7d" | "14d" | "30d" | "90d" | "custom"
@@ -13,6 +13,7 @@ export interface ReportRequest {
   langs?: string
   source?: "direct_url" | "catalog"
   appId?: string
+  sources?: Array<Record<string, unknown>>
 }
 
 interface ReportProgressState {
@@ -39,7 +40,8 @@ export function useReport() {
 
   const generate = useCallback(
     (request: ReportRequest) => {
-      if (!request.url) {
+      const hasMultiSourceInput = request.store === "multi_source" && Boolean(request.sources?.length)
+      if (!request.url && !hasMultiSourceInput) {
         setError("Missing required URL.")
         return
       }
@@ -49,6 +51,34 @@ export function useReport() {
       setError(null)
       setResult(null)
       setProgress({ step: "starting" })
+
+      if (request.store === "multi_source" && request.sources?.length) {
+        setProgress({ step: "fetching" })
+        fetch("/api/report/multi/sync", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ store: "multi_source", sources: request.sources }),
+          cache: "no-store",
+        })
+          .then(async (response) => {
+            if (!response.ok) {
+              const payload = (await response.json().catch(() => null)) as { detail?: string } | null
+              throw new Error(payload?.detail || "Combined report request failed.")
+            }
+            return response.json() as Promise<ReportSummaryPayload>
+          })
+          .then((payload) => {
+            setProgress({ step: "completed" })
+            setResult(payload)
+          })
+          .catch((err) => {
+            setError(err instanceof Error ? err.message : "Combined report request failed.")
+          })
+          .finally(() => {
+            setIsGenerating(false)
+          })
+        return
+      }
 
       const query = new URLSearchParams()
       query.set("store", request.store || "google_play")

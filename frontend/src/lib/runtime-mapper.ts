@@ -911,7 +911,10 @@ export function mapRunArtifactToDashboard(
       id: slugify(artifact.package_name || artifact.app_name || "app"),
       name: artifact.app_name || artifact.package_name || "Unknown app",
       packageId: artifact.package_name || "unknown.package",
-      platform: platform === "app_store" || platform === "yandex_games" || platform === "vk_play" ? platform : "google_play",
+      platform:
+        platform === "app_store" || platform === "yandex_games" || platform === "vk_play" || platform === "multi_source"
+          ? platform
+          : "google_play",
       rating: Number(avgRating.toFixed(2)),
       totalReviews,
     },

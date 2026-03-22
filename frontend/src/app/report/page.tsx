@@ -22,7 +22,7 @@ export default function ReportPage() {
 
   const request = useMemo(
     () => ({
-      store: (searchParams.get("store") as "google_play" | "app_store" | "yandex_games" | "vk_play" | null) || "google_play",
+      store: (searchParams.get("store") as "google_play" | "app_store" | "yandex_games" | "vk_play" | "multi_source" | null) || "google_play",
       url: searchParams.get("url") || "",
       country: searchParams.get("country") || "",
       period:
@@ -32,25 +32,43 @@ export default function ReportPage() {
       langs: searchParams.get("langs") || undefined,
       source: (searchParams.get("source") as "direct_url" | "catalog" | null) || "direct_url",
       appId: searchParams.get("app_id") || undefined,
+      sources: (() => {
+        const raw = searchParams.get("sources")
+        if (!raw) return undefined
+        try {
+          const parsed = JSON.parse(raw)
+          return Array.isArray(parsed) ? parsed : undefined
+        } catch {
+          return undefined
+        }
+      })(),
     }),
     [searchParams],
   )
 
   const { isGenerating, progress, result, error, generate } = useReport()
+  const hasRequestInput = Boolean(request.url) || (request.store === "multi_source" && Boolean(request.sources?.length))
 
   useEffect(() => {
     if (hasStartedRef.current) return
-    if (!request.url) return
+    if (!hasRequestInput) return
     hasStartedRef.current = true
     generate(request)
-  }, [generate, request])
+  }, [generate, hasRequestInput, request])
 
   useEffect(() => {
     if (!result?.run_id) return
     const targetLang = searchParams.get("lang") || locale || "en"
-    const targetPeriod = searchParams.get("period") || "14d"
-    const targetFrom = searchParams.get("from")
-    const targetTo = searchParams.get("to")
+    const targetPeriod =
+      result.window_mode === "7d"
+      || result.window_mode === "14d"
+      || result.window_mode === "30d"
+      || result.window_mode === "90d"
+      || result.window_mode === "custom"
+        ? result.window_mode
+        : (searchParams.get("period") as "7d" | "14d" | "30d" | "90d" | "custom" | null) || "14d"
+    const targetFrom = result.window_from || searchParams.get("from")
+    const targetTo = result.window_to || searchParams.get("to")
 
     try {
       sessionStorage.setItem(ACTIVE_RUN_ID_KEY, result.run_id)
@@ -85,14 +103,14 @@ export default function ReportPage() {
           <CardDescription>{text.pages.reportSubtitle}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {!request.url && (
+          {!hasRequestInput && (
             <div className="flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
               <AlertCircle className="h-4 w-4" />
               {text.pages.reportMissingUrl}
             </div>
           )}
 
-          {request.url && (
+          {hasRequestInput && (
             <>
               <div className="rounded-md border p-3 text-sm">
                 <div>
@@ -125,7 +143,7 @@ export default function ReportPage() {
               <Button
                 variant="outline"
                 onClick={() => generate(request)}
-                disabled={!request.url}
+                disabled={!hasRequestInput}
               >
                 {text.pages.reportRetry}
               </Button>

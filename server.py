@@ -760,9 +760,7 @@ async def _generate_multi_source_dashboard(
     app_metadata: dict[str, Any] = {}
     app_name = "Combined sources"
     fetched_at: str | None = None
-    window_mode: str | None = None
-    window_from: datetime | None = None
-    window_to: datetime | None = None
+    resolved_windows: list[tuple[str | None, datetime | None, datetime | None]] = []
 
     for result in results:
         if isinstance(result, Exception):
@@ -786,16 +784,43 @@ async def _generate_multi_source_dashboard(
             app_name = str(payload.get("app_name"))
         if not fetched_at and isinstance(payload.get("fetched_at"), str):
             fetched_at = payload.get("fetched_at")
-        if window_mode is None:
-            window_mode = payload.get("window_mode")
-            window_from = payload.get("window_from")
-            window_to = payload.get("window_to")
+        resolved_windows.append(
+            (
+                payload.get("window_mode"),
+                payload.get("window_from"),
+                payload.get("window_to"),
+            )
+        )
 
     stores_succeeded = list(successful_payloads.keys())
     stores_failed = [store for store in stores_requested if store not in successful_payloads]
 
     if not stores_succeeded:
         raise LookupError("All selected stores failed")
+
+    window_mode: str | None = None
+    window_from: datetime | None = None
+    window_to: datetime | None = None
+    unique_windows = {
+        (
+            mode,
+            start.isoformat() if isinstance(start, datetime) else None,
+            end.isoformat() if isinstance(end, datetime) else None,
+        )
+        for mode, start, end in resolved_windows
+    }
+    if len(unique_windows) == 1 and resolved_windows:
+        window_mode, window_from, window_to = resolved_windows[0]
+    elif resolved_windows:
+        dated_windows = [
+            (start, end)
+            for _, start, end in resolved_windows
+            if isinstance(start, datetime) and isinstance(end, datetime)
+        ]
+        if dated_windows:
+            window_mode = "custom"
+            window_from = min(start for start, _ in dated_windows)
+            window_to = max(end for _, end in dated_windows)
 
     if progress_callback:
         maybe_awaitable = progress_callback(
@@ -1091,6 +1116,9 @@ async def report_sync(
 
 @app.post("/api/report/multi/sync")
 async def multi_report_sync(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    store = str(payload.get("store") or "").strip()
+    if store and store != "multi_source":
+        raise HTTPException(status_code=422, detail="Multi-source report payload must use store='multi_source'.")
     sources = payload.get("sources")
     if not isinstance(sources, list) or not sources:
         raise HTTPException(status_code=422, detail="Multi-source report requires a non-empty 'sources' array.")

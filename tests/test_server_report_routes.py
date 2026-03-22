@@ -241,6 +241,7 @@ def test_multi_source_report_sync_contract(monkeypatch) -> None:
     response = client.post(
         "/api/report/multi/sync",
         json={
+            "store": "multi_source",
             "sources": [
                 {
                     "store": "google_play",

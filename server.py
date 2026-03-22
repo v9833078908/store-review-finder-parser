@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 from fastapi import Body, FastAPI, HTTPException, Query, Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from sse_starlette.sse import EventSourceResponse
 
@@ -850,10 +851,8 @@ async def _generate_multi_source_dashboard(
         )
     )
 
-    artifact_path = save_run_artifact(
-        package_name="multi_source",
-        app_name=app_name,
-        artifact={
+    artifact_payload = jsonable_encoder(
+        {
             "run_id": pipeline_result["run_id"],
             "fetched_at": fetched_at,
             "stores_requested": stores_requested,
@@ -889,7 +888,12 @@ async def _generate_multi_source_dashboard(
             "sample_limit": WINDOW_SAMPLE_LIMIT if window_mode else len(reviews),
             "reviews_selected": len(reviews),
             "reviews": reviews,
-        },
+        }
+    )
+    artifact_path = save_run_artifact(
+        package_name="multi_source",
+        app_name=app_name,
+        artifact=artifact_payload,
     )
 
     return {

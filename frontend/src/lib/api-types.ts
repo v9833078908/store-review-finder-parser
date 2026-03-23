@@ -71,7 +71,7 @@ export interface RunArtifact {
   run_id: string
   package_name: string
   app_name: string
-  store?: "google_play" | "app_store" | "yandex_games" | "vk_play" | "multi_source"
+  store?: "google_play" | "app_store" | "yandex_games" | "vk_play" | "steam" | "multi_source"
   fetched_at?: string
   saved_at?: string
   country?: string
@@ -110,7 +110,7 @@ export interface RunHistoryItem {
   run_id: string
   package_name: string
   app_name: string
-  store?: "google_play" | "app_store" | "yandex_games" | "vk_play" | "multi_source"
+  store?: "google_play" | "app_store" | "yandex_games" | "vk_play" | "steam" | "multi_source"
   saved_at?: string
   country?: string
   window_mode?: string

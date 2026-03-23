@@ -14,7 +14,7 @@ import type { DatePreset } from "@/lib/date-filters"
 import { listAllRegions } from "@/lib/regions"
 
 type ScanState = "idle" | "scanning" | "done" | "error"
-type ReportStore = "google_play" | "app_store" | "yandex_games" | "vk_play"
+type ReportStore = "google_play" | "app_store" | "yandex_games" | "vk_play" | "steam"
 type CombinedStoreConfig = {
   url: string
   country?: string
@@ -25,7 +25,8 @@ type CombinedStoreConfig = {
 }
 const YANDEX_GAMES_URL_RE = /^https:\/\/yandex\.ru\/games\/app\/(\d+)(?:[/?#].*)?$/i
 const VK_PLAY_URL_RE = /^https:\/\/vkplay\.ru\/play\/game\/([^/?#]+)(?:[/?#].*)?$/i
-const COMBINED_STORE_OPTIONS: ReportStore[] = ["google_play", "app_store", "yandex_games", "vk_play"]
+const STEAM_URL_RE = /^https:\/\/store\.steampowered\.com\/app\/(\d+)(?:\/[^?#]*)?(?:[?#].*)?$/i
+const COMBINED_STORE_OPTIONS: ReportStore[] = ["google_play", "app_store", "yandex_games", "vk_play", "steam"]
 
 function resolveErrorMessage(payload: unknown): string {
   if (!payload || typeof payload !== "object") return "Resolve request failed"
@@ -60,6 +61,7 @@ export default function SearchAppPage() {
     app_store: { url: "", country: "us", period: "14d", from: "", to: "" },
     yandex_games: { url: "", period: "14d", from: "", to: "" },
     vk_play: { url: "", period: "14d", from: "", to: "", langs: "ru" },
+    steam: { url: "", period: "14d", from: "", to: "", langs: "ru" },
   })
 
   const regionOptions = useMemo(() => listAllRegions("en"), [])
@@ -115,6 +117,9 @@ export default function SearchAppPage() {
         if (store === "vk_play" && !VK_PLAY_URL_RE.test(trimmedUrl)) {
           throw new Error("VK Play input must be a direct game URL.")
         }
+        if (store === "steam" && !STEAM_URL_RE.test(trimmedUrl)) {
+          throw new Error("Steam input must be a direct game URL.")
+        }
 
         const payload: Record<string, string> = {
           store,
@@ -130,8 +135,8 @@ export default function SearchAppPage() {
         } else {
           payload.country = "ru"
         }
-        if (store === "google_play" || store === "vk_play") {
-          payload.langs = String(config.langs || (store === "vk_play" ? "ru" : "en,ru")).trim()
+        if (store === "google_play" || store === "vk_play" || store === "steam") {
+          payload.langs = String(config.langs || (store === "google_play" ? "en,ru" : "ru")).trim()
         }
         if (config.period === "custom") {
           payload.from = config.from
@@ -254,6 +259,27 @@ export default function SearchAppPage() {
     }
   }
 
+  const buildSteamResolveData = (inputUrl: string): ResolveResponse => {
+    const normalizedUrl = inputUrl.trim()
+    const match = STEAM_URL_RE.exec(normalizedUrl)
+    const appId = match?.[1]
+    if (!appId) {
+      throw new Error("Steam input must be a direct game URL like https://store.steampowered.com/app/4011110/Pirate_Ships/")
+    }
+    return {
+      input_type: "details_url",
+      recommended_app_id: appId,
+      candidates: [
+        {
+          app_id: appId,
+          title: `Steam app ${appId}`,
+          url: normalizedUrl,
+          is_top1: true,
+        },
+      ],
+    }
+  }
+
   const resolveInput = async () => {
     if (!playInput.trim()) {
       setResolveError(
@@ -263,6 +289,8 @@ export default function SearchAppPage() {
             ? "Paste a direct Yandex Games URL first"
             : reportStore === "vk_play"
               ? "Paste a direct VK Play game URL first"
+              : reportStore === "steam"
+                ? "Paste a direct Steam game URL first"
             : "Paste Google Play URL or package first",
       )
       return
@@ -293,6 +321,12 @@ export default function SearchAppPage() {
       }
       if (reportStore === "vk_play") {
         const data = buildVkPlayResolveData(playInput)
+        setResolveData(data)
+        setSelectedAppId(data.recommended_app_id)
+        return
+      }
+      if (reportStore === "steam") {
+        const data = buildSteamResolveData(playInput)
         setResolveData(data)
         setSelectedAppId(data.recommended_app_id)
         return
@@ -335,21 +369,22 @@ export default function SearchAppPage() {
   }, [resolveData, selectedAppId])
   const usesYandexGamesFlow = reportStore === "yandex_games"
   const usesVkPlayFlow = reportStore === "vk_play"
-  const usesDirectUrlFlow = usesYandexGamesFlow || usesVkPlayFlow
+  const usesSteamFlow = reportStore === "steam"
+  const usesDirectUrlFlow = usesYandexGamesFlow || usesVkPlayFlow || usesSteamFlow
 
   const reportHref = useMemo(() => {
     if (!selectedCandidate) return ""
     if (!usesDirectUrlFlow && (!isCountryValid || !isCustomWindowValid)) return ""
     if (usesYandexGamesFlow && !isCustomWindowValid) return ""
-    if (usesVkPlayFlow && !reportLangs.trim()) return ""
+    if ((usesVkPlayFlow || usesSteamFlow) && !reportLangs.trim()) return ""
     const query = new URLSearchParams()
     query.set("url", selectedCandidate.url)
     query.set("store", reportStore)
     query.set("country", usesDirectUrlFlow ? "ru" : normalizedReportCountry)
     query.set("source", "direct_url")
     query.set("app_id", selectedCandidate.app_id)
-    query.set("lang", usesVkPlayFlow ? reportLangs.trim() : "en")
-    if (usesVkPlayFlow) {
+    query.set("lang", usesVkPlayFlow || usesSteamFlow ? reportLangs.trim() : "en")
+    if (usesVkPlayFlow || usesSteamFlow) {
       query.set("langs", reportLangs.trim())
     }
     query.set("period", reportPeriod)
@@ -358,7 +393,7 @@ export default function SearchAppPage() {
       query.set("to", reportCustomTo)
     }
     return `/report?${query.toString()}`
-  }, [isCountryValid, isCustomWindowValid, normalizedReportCountry, reportCustomFrom, reportCustomTo, reportLangs, reportPeriod, reportStore, selectedCandidate, usesDirectUrlFlow, usesVkPlayFlow, usesYandexGamesFlow])
+  }, [isCountryValid, isCustomWindowValid, normalizedReportCountry, reportCustomFrom, reportCustomTo, reportLangs, reportPeriod, reportStore, selectedCandidate, usesDirectUrlFlow, usesSteamFlow, usesVkPlayFlow, usesYandexGamesFlow])
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 to-background">
@@ -371,7 +406,7 @@ export default function SearchAppPage() {
           </div>
           <h1 className="mb-2 text-4xl font-extrabold tracking-tight">Review Analytics</h1>
           <p className="mx-auto max-w-xl text-muted-foreground">
-            Generate review analytics report for Google Play, App Store, or Yandex Games titles, or scan Google Play top charts to find games with low developer reply rates.
+            Generate review analytics report for Google Play, App Store, Yandex Games, VK Play, or Steam titles, or scan Google Play top charts to find games with low developer reply rates.
           </p>
         </header>
 
@@ -388,6 +423,8 @@ export default function SearchAppPage() {
                   ? "Paste a direct Yandex Games app URL to analyze reviews"
                   : reportStore === "vk_play"
                     ? "Paste a direct VK Play game URL to analyze reviews"
+                    : reportStore === "steam"
+                      ? "Paste a direct Steam game URL to analyze reviews"
                   : "Paste a Google Play URL or search query to analyze reviews"}
             </p>
 
@@ -397,10 +434,10 @@ export default function SearchAppPage() {
                 onValueChange={(value) => {
                   const nextStore = value as ReportStore
                   setReportStore(nextStore)
-                  if ((nextStore === "yandex_games" || nextStore === "vk_play") && (!reportCountry.trim() || reportCountry.trim().toLowerCase() === "us")) {
+                  if ((nextStore === "yandex_games" || nextStore === "vk_play" || nextStore === "steam") && (!reportCountry.trim() || reportCountry.trim().toLowerCase() === "us")) {
                     setReportCountry("ru")
                   }
-                  if (nextStore === "vk_play" && !reportLangs.trim()) {
+                  if ((nextStore === "vk_play" || nextStore === "steam") && !reportLangs.trim()) {
                     setReportLangs("ru")
                   }
                   setResolveData(null)
@@ -416,11 +453,12 @@ export default function SearchAppPage() {
                   <SelectItem value="app_store">App Store</SelectItem>
                   <SelectItem value="yandex_games">Yandex Games</SelectItem>
                   <SelectItem value="vk_play">VK Play</SelectItem>
+                  <SelectItem value="steam">Steam</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
-            <div className={`grid grid-cols-1 gap-3 ${usesYandexGamesFlow ? "xl:grid-cols-[1fr_160px_auto]" : usesVkPlayFlow ? "xl:grid-cols-[1fr_120px_160px_auto]" : "xl:grid-cols-[1fr_220px_160px_auto]"}`}>
+            <div className={`grid grid-cols-1 gap-3 ${usesYandexGamesFlow ? "xl:grid-cols-[1fr_160px_auto]" : usesVkPlayFlow || usesSteamFlow ? "xl:grid-cols-[1fr_120px_160px_auto]" : "xl:grid-cols-[1fr_220px_160px_auto]"}`}>
               <Input
                 value={playInput}
                 onChange={(event) => setPlayInput(event.target.value)}
@@ -431,6 +469,8 @@ export default function SearchAppPage() {
                       ? "https://yandex.ru/games/app/423744"
                       : reportStore === "vk_play"
                         ? "https://vkplay.ru/play/game/pirate-ships-46035"
+                        : reportStore === "steam"
+                          ? "https://store.steampowered.com/app/4011110/Pirate_Ships/"
                       : "https://play.google.com/store/search?q=pirate+ships&c=apps"
                 }
                 className="h-11"
@@ -458,7 +498,7 @@ export default function SearchAppPage() {
                 </div>
               )}
 
-              {usesVkPlayFlow && (
+              {(usesVkPlayFlow || usesSteamFlow) && (
                 <Input
                   value={reportLangs}
                   onChange={(event) => setReportLangs(event.target.value.toLowerCase())}
@@ -511,6 +551,8 @@ export default function SearchAppPage() {
                   ? "Direct Yandex Games URLs only · The scraper fetches the available feed and keeps reviews only for the selected period"
                   : reportStore === "vk_play"
                     ? "Direct VK Play URLs only · The scraper uses the selected language and selected date window"
+                    : reportStore === "steam"
+                      ? "Direct Steam URLs only · The scraper uses the selected language and selected date window"
                   : "Google Play Store URLs only · Up to 1,000 newest reviews from the selected period and region"}
             </p>
 
@@ -575,6 +617,8 @@ export default function SearchAppPage() {
                           ? "Open in Yandex Games"
                           : reportStore === "vk_play"
                             ? "Open in VK Play"
+                            : reportStore === "steam"
+                              ? "Open in Steam"
                           : "Open in Google Play"}
                     </a>
                   )}
@@ -612,7 +656,9 @@ export default function SearchAppPage() {
                           ? "App Store"
                           : store === "yandex_games"
                             ? "Yandex Games"
-                            : "VK Play"}
+                            : store === "vk_play"
+                              ? "VK Play"
+                              : "Steam"}
                     </span>
                   </label>
                 )
@@ -631,9 +677,11 @@ export default function SearchAppPage() {
                           ? "App Store"
                           : store === "yandex_games"
                             ? "Yandex Games"
-                            : "VK Play"}
+                            : store === "vk_play"
+                              ? "VK Play"
+                              : "Steam"}
                     </div>
-                    <div className={`grid grid-cols-1 gap-3 ${store === "google_play" ? "xl:grid-cols-[1fr_140px_160px]" : store === "app_store" ? "xl:grid-cols-[1fr_140px_160px]" : store === "vk_play" ? "xl:grid-cols-[1fr_120px_160px]" : "xl:grid-cols-[1fr_160px]"}`}>
+                    <div className={`grid grid-cols-1 gap-3 ${store === "google_play" ? "xl:grid-cols-[1fr_140px_160px]" : store === "app_store" ? "xl:grid-cols-[1fr_140px_160px]" : store === "vk_play" || store === "steam" ? "xl:grid-cols-[1fr_120px_160px]" : "xl:grid-cols-[1fr_160px]"}`}>
                       <Input
                         value={config.url}
                         onChange={(event) => updateCombinedConfig(store, { url: event.target.value })}
@@ -644,7 +692,9 @@ export default function SearchAppPage() {
                               ? "123456789"
                               : store === "yandex_games"
                                 ? "https://yandex.ru/games/app/423744"
-                                : "https://vkplay.ru/play/game/pirate-ships-46035"
+                                : store === "vk_play"
+                                  ? "https://vkplay.ru/play/game/pirate-ships-46035"
+                                  : "https://store.steampowered.com/app/4011110/Pirate_Ships/"
                         }
                         className="h-11"
                       />
@@ -659,7 +709,7 @@ export default function SearchAppPage() {
                         />
                       )}
 
-                      {store === "vk_play" && (
+                      {(store === "vk_play" || store === "steam") && (
                         <Input
                           value={config.langs || "ru"}
                           onChange={(event) => updateCombinedConfig(store, { langs: event.target.value.toLowerCase() })}

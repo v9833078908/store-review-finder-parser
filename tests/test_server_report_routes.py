@@ -213,6 +213,46 @@ def test_report_sync_contract_accepts_vk_play(monkeypatch) -> None:
     assert payload["package_name"] == "46035"
 
 
+def test_report_sync_contract_accepts_steam(monkeypatch) -> None:
+    async def fake_generate_dashboard(**kwargs):
+        assert kwargs["store"] == "steam"
+        assert kwargs["url"] == "https://store.steampowered.com/app/4011110/Pirate_Ships/"
+        assert kwargs["country"] == "ru"
+        assert kwargs["langs_raw"] == "ru"
+        assert kwargs["period"] == "14d"
+        return {
+            "run_id": "run-steam",
+            "package_name": "4011110",
+            "app_name": "Pirate Ships",
+            "report_path": "/tmp/report.md",
+            "artifact_path": "/tmp/run.json",
+            "markdown": "# Report",
+            "report_layers": {},
+            "stats": {},
+            "category_counts": {},
+            "alerts_count": 0,
+        }
+
+    monkeypatch.setattr(server, "_generate_dashboard", fake_generate_dashboard)
+
+    client = TestClient(server.app)
+    response = client.get(
+        "/api/report/sync",
+        params={
+            "store": "steam",
+            "url": "https://store.steampowered.com/app/4011110/Pirate_Ships/",
+            "country": "ru",
+            "langs": "ru",
+            "period": "14d",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["run_id"] == "run-steam"
+    assert payload["package_name"] == "4011110"
+
+
 def test_multi_source_report_sync_contract(monkeypatch) -> None:
     async def fake_generate_multi_source_dashboard(**kwargs):
         assert len(kwargs["sources"]) == 2
@@ -488,6 +528,95 @@ def test_generate_dashboard_uses_vk_play_fetch_branch(monkeypatch) -> None:
     assert calls["pipeline_kwargs"]["app_name"] == "Pirate Ships"
     assert calls["artifact_kwargs"]["artifact"]["store"] == "vk_play"
     assert result["package_name"] == "46035"
+
+
+def test_generate_dashboard_uses_steam_fetch_branch(monkeypatch) -> None:
+    calls: dict[str, object] = {}
+
+    async def fake_fetch_steam_reviews(**kwargs):
+        calls["fetch_kwargs"] = kwargs
+        return {
+            "app_id": "4011110",
+            "app_name": "Pirate Ships",
+            "lang": "russian",
+            "reviews": [
+                {
+                    "review_id": "rev-1",
+                    "date": "2026-03-18T00:00:00+00:00",
+                    "rating": 1,
+                    "text": "Bad",
+                    "version": None,
+                    "thumbs_up": 0,
+                    "original_lang": "ru",
+                    "lang": "ru",
+                    "has_reply": False,
+                    "reply_text": None,
+                    "reply_date": None,
+                }
+            ],
+            "app_metadata": {"score": 66},
+            "fetched_at": "2026-03-23T00:00:00+00:00",
+            "cache_hit": False,
+        }
+
+    async def fake_run_pipeline_and_build_report(**kwargs):
+        calls["pipeline_kwargs"] = kwargs
+        return (
+            {
+                "run_id": "run-steam-branch",
+                "themes": [],
+                "classified": [],
+                "alerts": [],
+                "stats": {},
+                "category_counts": {},
+                "synthesis_markdown": "",
+                "report_layers": {},
+                "model": "test",
+                "prompt_versions": {},
+            },
+            "# Report",
+            Path("/tmp/report.md"),
+            {"version": "1.0.0"},
+            None,
+        )
+
+    def fake_save_run_artifact(**kwargs):
+        calls["artifact_kwargs"] = kwargs
+        return "/tmp/run.json"
+
+    monkeypatch.setattr(server, "fetch_steam_reviews", fake_fetch_steam_reviews)
+    monkeypatch.setattr(server, "_run_pipeline_and_build_report", fake_run_pipeline_and_build_report)
+    monkeypatch.setattr(server, "save_run_artifact", fake_save_run_artifact)
+    monkeypatch.setattr(server, "update_version_history", lambda *args, **kwargs: None)
+    monkeypatch.setattr(server, "get_current_version", lambda package_name: {"version": "1.0.0"})
+    monkeypatch.setattr(server, "get_previous_version", lambda package_name: None)
+    monkeypatch.setattr(server, "load_dashboard_config", lambda *args, **kwargs: {})
+    monkeypatch.setattr(server, "log_event", lambda *args, **kwargs: None)
+    monkeypatch.setattr(server, "update_current_trace", lambda *args, **kwargs: None)
+
+    result = asyncio.run(
+        server._generate_dashboard(
+            store="steam",
+            url="https://store.steampowered.com/app/4011110/Pirate_Ships/",
+            max_reviews=25,
+            langs_raw="ru",
+            country="ru",
+            period="14d",
+            from_date=None,
+            to_date=None,
+            force_refresh=False,
+            cache_ttl_hours=1,
+            source="direct_url",
+            selected_app_id=None,
+        )
+    )
+
+    assert calls["fetch_kwargs"]["url"] == "https://store.steampowered.com/app/4011110/Pirate_Ships/"
+    assert calls["fetch_kwargs"]["lang"] == "ru"
+    assert calls["pipeline_kwargs"]["package_name"] == "4011110"
+    assert calls["pipeline_kwargs"]["app_name"] == "Pirate Ships"
+    assert calls["artifact_kwargs"]["artifact"]["store"] == "steam"
+    assert result["package_name"] == "4011110"
 
 
 def test_report_sync_returns_503_for_yandex_games_fallback_needed(monkeypatch) -> None:

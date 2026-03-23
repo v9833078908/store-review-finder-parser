@@ -912,7 +912,7 @@ export function mapRunArtifactToDashboard(
       name: artifact.app_name || artifact.package_name || "Unknown app",
       packageId: artifact.package_name || "unknown.package",
       platform:
-        platform === "app_store" || platform === "yandex_games" || platform === "vk_play" || platform === "multi_source"
+        platform === "app_store" || platform === "yandex_games" || platform === "vk_play" || platform === "steam" || platform === "multi_source"
           ? platform
           : "google_play",
       rating: Number(avgRating.toFixed(2)),

@@ -8,6 +8,7 @@ import { buildEmptyReportLayers } from "@/lib/dashboard-types"
 import { mapRunArtifactToDashboard } from "@/lib/runtime-mapper"
 import { useDashboardPreferences } from "@/lib/dashboard-preferences"
 import { filterDashboardDataByDate } from "@/lib/dashboard-filtering"
+import { browserUrl } from "@/lib/base-path"
 
 const STORAGE_KEY_PREFIX = "review-dashboard:data:v2"
 const TAB_RUN_ID_KEY = "review-dashboard:active-run-id:tab:v1"
@@ -83,7 +84,7 @@ function buildEmptyDashboardData(): DashboardData {
 }
 
 async function fetchRunArtifact(runId: string, filters: RunFetchFilters): Promise<RunArtifact> {
-  const url = new URL(`/api/runs/${encodeURIComponent(runId)}`, window.location.origin)
+  const url = browserUrl(`/api/runs/${encodeURIComponent(runId)}`)
   url.searchParams.set("lang", filters.locale)
   url.searchParams.set("period", filters.period)
   url.searchParams.set("date_from", filters.dateFrom)
@@ -103,7 +104,7 @@ async function fetchRunArtifact(runId: string, filters: RunFetchFilters): Promis
 }
 
 async function fetchRunHistoryFromApi(limit = 10): Promise<RunHistoryResponse> {
-  const url = new URL("/api/runs", window.location.origin)
+  const url = browserUrl("/api/runs")
   url.searchParams.set("limit", String(limit))
   url.searchParams.set("unique_apps", "true")
   const response = await fetch(url.toString(), { cache: "no-store" })

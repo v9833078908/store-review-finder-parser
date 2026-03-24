@@ -1,5 +1,1 @@
-import { redirect } from "next/navigation";
-
-export default function Home() {
-  redirect("/search-app");
-}
+export { default } from "./search-app/page";

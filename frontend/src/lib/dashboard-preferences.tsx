@@ -34,6 +34,7 @@ import {
   serializeDateFilter,
   type DateFilterState,
 } from "@/lib/date-filters"
+import { browserUrl } from "@/lib/base-path"
 
 const LOCALE_STORAGE_KEY = "review-dashboard:locale:v1"
 const DATE_FILTER_STORAGE_KEY = "review-dashboard:date-filter:v1"
@@ -121,7 +122,7 @@ export function DashboardPreferencesProvider({
       const key = configStorageKey(packageName, normalizedRole)
 
       try {
-        const url = new URL("/api/dashboard-config", window.location.origin)
+        const url = browserUrl("/api/dashboard-config")
         url.searchParams.set("package_name", packageName)
         url.searchParams.set("role_profile", normalizedRole)
 
@@ -177,7 +178,7 @@ export function DashboardPreferencesProvider({
       )
 
       try {
-        const url = new URL("/api/dashboard-config", window.location.origin)
+        const url = browserUrl("/api/dashboard-config")
         url.searchParams.set("package_name", packageName)
         url.searchParams.set("role_profile", normalizedRole)
 

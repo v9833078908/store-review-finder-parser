@@ -19,6 +19,7 @@ import {
 } from "@/lib/date-filters"
 import { formatDateTime } from "@/lib/utils"
 import { getUiText } from "@/lib/i18n"
+import { isSearchAppHomePath } from "@/lib/base-path"
 import type { RunHistoryItem } from "@/lib/api-types"
 
 const DATE_PRESETS: DatePreset[] = ["24h", "7d", "14d", "30d", "90d", "custom"]
@@ -255,7 +256,7 @@ function DashboardHeader() {
 
 export function Header() {
   const pathname = usePathname()
-  if (pathname.startsWith("/search-app")) {
+  if (isSearchAppHomePath(pathname)) {
     return null
   }
   return <DashboardHeader />

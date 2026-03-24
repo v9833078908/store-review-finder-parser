@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import type { ReportSseEvent, ReportSummaryPayload } from "@/lib/api-types"
+import { apiPath } from "@/lib/base-path"
 
 export interface ReportRequest {
   store?: "google_play" | "app_store" | "yandex_games" | "vk_play" | "steam" | "multi_source"
@@ -54,7 +55,7 @@ export function useReport() {
 
       if (request.store === "multi_source" && request.sources?.length) {
         setProgress({ step: "fetching" })
-        fetch("/api/report/multi/sync", {
+        fetch(apiPath("/api/report/multi/sync"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ store: "multi_source", sources: request.sources }),
@@ -97,7 +98,7 @@ export function useReport() {
         query.set("app_id", request.appId)
       }
 
-      const eventSource = new EventSource(`/api/report?${query.toString()}`)
+      const eventSource = new EventSource(`${apiPath("/api/report")}?${query.toString()}`)
       eventSourceRef.current = eventSource
 
       eventSource.onmessage = (event) => {

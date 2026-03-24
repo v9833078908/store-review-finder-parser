@@ -12,6 +12,7 @@ import { ScanForm } from "@/components/search-app/scan-form"
 import type { AppResult, ResolveResponse, ScanEvent, ScanParams } from "@/lib/lead-search/types"
 import type { DatePreset } from "@/lib/date-filters"
 import { listAllRegions } from "@/lib/regions"
+import { apiPath, withBasePath } from "@/lib/base-path"
 
 type ScanState = "idle" | "scanning" | "done" | "error"
 type ReportStore = "google_play" | "app_store" | "yandex_games" | "vk_play" | "steam"
@@ -342,7 +343,7 @@ export default function SearchAppPage() {
         query.set("limit", "5")
       }
 
-      const endpoint = reportStore === "app_store" ? "/api/resolve/app-store" : "/api/resolve/google-play"
+      const endpoint = reportStore === "app_store" ? apiPath("/api/resolve/app-store") : apiPath("/api/resolve/google-play")
       const response = await fetch(`${endpoint}?${query.toString()}`, {
         method: "GET",
         cache: "no-store",
@@ -392,7 +393,7 @@ export default function SearchAppPage() {
       query.set("from", reportCustomFrom)
       query.set("to", reportCustomTo)
     }
-    return `/report?${query.toString()}`
+    return withBasePath(`/report?${query.toString()}`)
   }, [isCountryValid, isCustomWindowValid, normalizedReportCountry, reportCustomFrom, reportCustomTo, reportLangs, reportPeriod, reportStore, selectedCandidate, usesDirectUrlFlow, usesSteamFlow, usesVkPlayFlow, usesYandexGamesFlow])
 
   return (

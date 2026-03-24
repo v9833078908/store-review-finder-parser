@@ -51,6 +51,7 @@ Recommended values:
 
 ```env
 # frontend
+NEXT_PUBLIC_BASE_PATH=
 NEXT_PUBLIC_API_URL=http://localhost:8000
 INTERNAL_API_URL=http://localhost:8000
 ```
@@ -59,6 +60,15 @@ Backend CORS:
 
 ```env
 CORS_ORIGINS=http://localhost:51100,http://127.0.0.1:51100,http://localhost:51200,http://127.0.0.1:51200
+```
+
+Coolify subpath deployment on `https://dev.tools.herocraft.com/search-app`:
+
+```env
+NEXT_PUBLIC_BASE_PATH=/search-app
+NEXT_PUBLIC_API_URL=https://dev.tools.herocraft.com/search-app/api
+INTERNAL_API_URL=http://review-api:8000
+CORS_ORIGINS=https://dev.tools.herocraft.com
 ```
 
 ## Quick Start (Local)

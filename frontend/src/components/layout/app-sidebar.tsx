@@ -12,11 +12,12 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
+import { isSearchAppHomePath } from "@/lib/base-path"
 import { useDashboardPreferences } from "@/lib/dashboard-preferences"
 import { getUiText } from "@/lib/i18n"
 
 const navItems = [
-  { key: "searchApp",    href: "/search-app",    icon: Search },
+  { key: "searchApp",    href: "/",              icon: Search },
   { key: "commandCenter", href: "/command-center", icon: LayoutDashboard },
   { key: "issues",       href: "/issues",         icon: AlertCircle },
   { key: "reviews",      href: "/reviews",        icon: MessageSquare },
@@ -28,7 +29,7 @@ export function AppSidebar() {
   const { locale } = useDashboardPreferences()
   const text = getUiText(locale)
 
-  if (pathname.startsWith("/search-app")) {
+  if (isSearchAppHomePath(pathname)) {
     return null
   }
 

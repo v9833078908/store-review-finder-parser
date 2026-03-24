@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
 
 import { StatusCards } from "@/components/command-center/status-cards"
@@ -60,7 +61,7 @@ export default function CommandCenterPage() {
           <h1 className="mb-3 text-2xl font-semibold tracking-tight">{text.pages.commandCenterTitle}</h1>
           <p className="mb-6 text-sm text-muted-foreground">{error}</p>
           <Button asChild>
-            <a href="/search-app">Open Search App</a>
+            <Link href="/">Open Search App</Link>
           </Button>
         </div>
       </div>

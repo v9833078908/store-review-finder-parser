@@ -18,7 +18,7 @@ services:
       PORT: 8000
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:51100,http://127.0.0.1:51100,http://localhost:51200,http://127.0.0.1:51200}
     ports:
-      - "8000:8000"
+      - "${REVIEW_API_HOST_PORT:-8000}:8000"
     healthcheck:
       test:
         [
@@ -45,8 +45,14 @@ services:
       NEXT_PUBLIC_BASE_PATH: ${NEXT_PUBLIC_BASE_PATH:-}
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
       INTERNAL_API_URL: ${INTERNAL_API_URL:-http://review-api:8000}
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.review-search-app.rule=Host(`dev.tools.herocraft.com`) && PathPrefix(`/search-app`)
+      - traefik.http.routers.review-search-app.entrypoints=http
+      - traefik.http.routers.review-search-app.priority=110
+      - traefik.http.services.review-search-app.loadbalancer.server.port=51200
     ports:
-      - "51200:51200"
+      - "${FRONTEND_HOST_PORT:-51200}:51200"
     depends_on:
       review-api:
         condition: service_healthy
@@ -61,7 +67,7 @@ services:
     environment:
       NEXT_PUBLIC_DASHBOARD_URL: ${NEXT_PUBLIC_DASHBOARD_URL:-http://localhost:51200}
     ports:
-      - "51100:51100"
+      - "${LEAD_FINDER_HOST_PORT:-51100}:51100"
     depends_on:
       frontend:
         condition: service_started

@@ -54,6 +54,9 @@ Recommended values:
 NEXT_PUBLIC_BASE_PATH=
 NEXT_PUBLIC_API_URL=http://localhost:8000
 INTERNAL_API_URL=http://localhost:8000
+FRONTEND_HOST_PORT=51200
+REVIEW_API_HOST_PORT=8000
+LEAD_FINDER_HOST_PORT=51100
 ```
 
 Backend CORS:
@@ -69,6 +72,9 @@ NEXT_PUBLIC_BASE_PATH=/search-app
 NEXT_PUBLIC_API_URL=https://dev.tools.herocraft.com/search-app/api
 INTERNAL_API_URL=http://review-api:8000
 CORS_ORIGINS=https://dev.tools.herocraft.com
+FRONTEND_HOST_PORT=15120
+REVIEW_API_HOST_PORT=18000
+LEAD_FINDER_HOST_PORT=15110
 ```
 
 ## Quick Start (Local)

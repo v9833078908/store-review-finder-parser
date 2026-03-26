@@ -107,6 +107,14 @@ def _get_playwright_browser_launch_kwargs() -> dict[str, Any]:
     executable_path = str(os.getenv("PLAYWRIGHT_BROWSER_EXECUTABLE") or "").strip()
     if executable_path:
         return {"executable_path": executable_path}
+    for candidate in (
+        "/usr/bin/google-chrome-stable",
+        "/usr/bin/google-chrome",
+        "/usr/bin/chromium",
+        "/usr/bin/chromium-browser",
+    ):
+        if os.path.exists(candidate):
+            return {"executable_path": candidate}
     return {"channel": "chrome"}
 
 

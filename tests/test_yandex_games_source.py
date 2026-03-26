@@ -365,6 +365,18 @@ def test_get_playwright_browser_launch_kwargs_prefers_env_executable(monkeypatch
     assert kwargs == {"executable_path": "/usr/bin/chromium"}
 
 
+def test_get_playwright_browser_launch_kwargs_detects_system_chrome(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("PLAYWRIGHT_BROWSER_EXECUTABLE", raising=False)
+    monkeypatch.setattr(
+        "sources.yandex_games.os.path.exists",
+        lambda path: path == "/usr/bin/google-chrome-stable",
+    )
+
+    kwargs = _get_playwright_browser_launch_kwargs()
+
+    assert kwargs == {"executable_path": "/usr/bin/google-chrome-stable"}
+
+
 def test_fetch_reviews_page_uses_offset_pagination(monkeypatch: pytest.MonkeyPatch) -> None:
     requested_urls: list[str] = []
 

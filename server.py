@@ -446,7 +446,8 @@ async def _fetch_all_reviews(
         if not reviews:
             target_scope = "all regions" if normalized_country == ALL_REGION_CODE else f"region '{normalized_country}'"
             raise LookupError(
-                f"No reviews found for {target_scope} in the selected window ({window_mode})."
+                f"No reviews were returned by the source for {target_scope} in the selected window ({window_mode}). "
+                "The service is available, but the source currently has no reviews for this filter."
             )
 
     fetched_at: str | None = next(

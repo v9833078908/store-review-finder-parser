@@ -732,7 +732,10 @@ def test_report_sync_custom_period_requires_from_and_to() -> None:
 
 def test_report_sync_returns_404_for_empty_window(monkeypatch) -> None:
     async def fake_generate_dashboard(**kwargs):
-        raise LookupError("No reviews found for region 'us' in the selected window (14d).")
+        raise LookupError(
+            "No reviews were returned by the source for region 'us' in the selected window (14d). "
+            "The service is available, but the source currently has no reviews for this filter."
+        )
 
     monkeypatch.setattr(server, "_generate_dashboard", fake_generate_dashboard)
 
@@ -748,7 +751,8 @@ def test_report_sync_returns_404_for_empty_window(monkeypatch) -> None:
 
     assert response.status_code == 404
     payload = response.json()
-    assert "No reviews found for region 'us'" in payload["detail"]
+    assert "No reviews were returned by the source for region 'us'" in payload["detail"]
+    assert "service is available" in payload["detail"]
 
 
 def test_report_sync_passes_custom_window_params(monkeypatch) -> None:

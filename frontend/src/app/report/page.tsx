@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { useReport } from "@/hooks/use-report"
 import { useDashboardPreferences } from "@/lib/dashboard-preferences"
 import { getUiText } from "@/lib/i18n"
+import { withBasePath } from "@/lib/base-path"
 
 const ACTIVE_RUN_ID_KEY = "review-dashboard:active-run-id:tab:v1"
 const LAST_RUN_ID_KEY = "review-dashboard:run-id:v1"
@@ -92,7 +93,7 @@ export default function ReportPage() {
       params.set("from", targetFrom)
       params.set("to", targetTo)
     }
-    router.replace(`/command-center?${params.toString()}`)
+    router.replace(withBasePath(`/command-center?${params.toString()}`))
   }, [locale, result, router, searchParams])
 
   return (

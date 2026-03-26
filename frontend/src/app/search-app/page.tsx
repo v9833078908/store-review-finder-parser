@@ -149,7 +149,7 @@ export default function SearchAppPage() {
       const query = new URLSearchParams()
       query.set("store", "multi_source")
       query.set("sources", JSON.stringify(sources))
-      return `/report?${query.toString()}`
+      return withBasePath(`/report?${query.toString()}`)
     } catch {
       return ""
     }
@@ -176,7 +176,7 @@ export default function SearchAppPage() {
     query.set("windowDays", String(params.windowDays))
     query.set("minAgeDays", String(params.minAgeDays))
 
-    const source = new EventSource(`/api/scan?${query.toString()}`)
+    const source = new EventSource(`${apiPath("/api/scan")}?${query.toString()}`)
     eventSourceRef.current = source
 
     source.onmessage = (event) => {

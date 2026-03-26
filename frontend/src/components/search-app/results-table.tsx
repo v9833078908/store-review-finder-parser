@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import type { AppResult, ScanParams } from "@/lib/lead-search/types"
 import type { DatePreset } from "@/lib/date-filters"
+import { withBasePath } from "@/lib/base-path"
 
 interface ResultsTableProps {
   results: AppResult[]
@@ -86,7 +87,7 @@ export function ResultsTable({
       query.set("from", reportCustomFrom)
       query.set("to", reportCustomTo)
     }
-    return `/report?${query.toString()}`
+    return withBasePath(`/report?${query.toString()}`)
   }
 
   if (!results.length) {

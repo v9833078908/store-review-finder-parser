@@ -24,7 +24,7 @@ type CombinedStoreConfig = {
   to: string
   langs?: string
 }
-const YANDEX_GAMES_URL_RE = /^https:\/\/yandex\.ru\/games\/app\/(\d+)(?:[/?#].*)?$/i
+const YANDEX_GAMES_URL_RE = /^https:\/\/yandex\.ru\/games\/app\/(?:(?:[^/?#]+)-)?(\d+)(?:[/?#].*)?$/i
 const VK_PLAY_URL_RE = /^https:\/\/vkplay\.ru\/play\/game\/([^/?#]+)(?:[/?#].*)?$/i
 const STEAM_URL_RE = /^https:\/\/store\.steampowered\.com\/app\/(\d+)(?:\/[^?#]*)?(?:[?#].*)?$/i
 const COMBINED_STORE_OPTIONS: ReportStore[] = ["google_play", "app_store", "yandex_games", "vk_play", "steam"]
@@ -223,7 +223,9 @@ export default function SearchAppPage() {
     const match = YANDEX_GAMES_URL_RE.exec(normalizedUrl)
     const appId = match?.[1]
     if (!appId) {
-      throw new Error("Yandex Games input must be a direct game URL like https://yandex.ru/games/app/423744")
+      throw new Error(
+        "Yandex Games input must be a direct game URL like https://yandex.ru/games/app/423744 or https://yandex.ru/games/app/age-of-heroes-494148",
+      )
     }
     return {
       input_type: "details_url",

@@ -20,7 +20,9 @@ try:
 except ImportError:  # pragma: no cover - dependency may be absent in local test env
     async_playwright = None
 
-YANDEX_GAMES_URL_RE = re.compile(r"^https://yandex\.ru/games/app/(?P<app_id>\d+)(?:[/?#].*)?$")
+YANDEX_GAMES_URL_RE = re.compile(
+    r"^https://yandex\.ru/games/app/(?:(?:[^/?#]+)-)?(?P<app_id>\d+)(?:[/?#].*)?$"
+)
 _GAME_PAYLOAD_RE_TEMPLATE = r'"game"\s*:\s*\{{[^{{}}]*"id"\s*:\s*"{app_id}"[^{{}}]*"title"\s*:\s*"(?P<title>[^"]+)"'
 _TITLE_RE = re.compile(r"<title>(?P<title>[^<]+)</title>", re.IGNORECASE)
 _OG_TITLE_RE = re.compile(r'<meta[^>]+property=["\']og:title["\'][^>]+content=["\'](?P<title>[^"\']+)["\']', re.IGNORECASE)
@@ -36,7 +38,10 @@ _TRANSIENT_EXCEPTIONS = (TimeoutError, ConnectionError, asyncio.TimeoutError)
 def extract_yandex_games_app_id(url: str) -> str:
     match = YANDEX_GAMES_URL_RE.match(str(url or "").strip())
     if not match:
-        raise ValueError("Expected a direct Yandex Games URL like https://yandex.ru/games/app/<id>")
+        raise ValueError(
+            "Expected a direct Yandex Games URL like https://yandex.ru/games/app/423744 "
+            "or https://yandex.ru/games/app/age-of-heroes-494148"
+        )
     return match.group("app_id")
 
 

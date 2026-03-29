@@ -21,6 +21,13 @@ def test_extract_yandex_games_app_id_accepts_direct_game_url() -> None:
     assert extract_yandex_games_app_id("https://yandex.ru/games/app/423744") == "423744"
 
 
+def test_extract_yandex_games_app_id_accepts_slugged_game_url() -> None:
+    assert (
+        extract_yandex_games_app_id("https://yandex.ru/games/app/age-of-heroes-494148?utm_source=game_promo_catalog#info")
+        == "494148"
+    )
+
+
 def test_extract_yandex_games_app_id_rejects_non_game_url() -> None:
     try:
         extract_yandex_games_app_id("https://yandex.ru/games")

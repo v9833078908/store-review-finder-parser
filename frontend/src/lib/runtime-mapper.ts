@@ -390,19 +390,43 @@ function buildTimeline(
   const dateValues = reviews
     .map((review) => toDate(review.createdAt))
     .filter((value): value is Date => value !== null)
-  const latest = dateValues.length ? new Date(Math.max(...dateValues.map((value) => value.getTime()))) : new Date()
+  if (!dateValues.length) return []
+
+  const earliest = new Date(Math.min(...dateValues.map((value) => value.getTime())))
+  const latest = new Date(Math.max(...dateValues.map((value) => value.getTime())))
   const releaseDate = toDate(releaseDateRaw)
   const dayMs = 24 * 60 * 60 * 1000
 
+  const reviewsByDate = new Map<string, Review[]>()
+  for (const review of reviews) {
+    const key = isoDateOnly(new Date(review.createdAt))
+    const items = reviewsByDate.get(key)
+    if (items) {
+      items.push(review)
+    } else {
+      reviewsByDate.set(key, [review])
+    }
+  }
+
+  const alertsByDate = new Map<string, Alert[]>()
+  for (const alert of alerts) {
+    const dt = toDate(alert.detectedAt)
+    if (!dt) continue
+    const key = isoDateOnly(dt)
+    const items = alertsByDate.get(key)
+    if (items) {
+      items.push(alert)
+    } else {
+      alertsByDate.set(key, [alert])
+    }
+  }
+
   const points: TimelinePoint[] = []
-  for (let offset = 6; offset >= 0; offset -= 1) {
-    const day = new Date(latest.getTime() - offset * dayMs)
+  for (let ts = earliest.getTime(); ts <= latest.getTime(); ts += dayMs) {
+    const day = new Date(ts)
     const key = isoDateOnly(day)
-    const dayReviews = reviews.filter((review) => isoDateOnly(new Date(review.createdAt)) === key)
-    const dayAlerts = alerts.filter((alert) => {
-      const dt = toDate(alert.detectedAt)
-      return dt !== null && isoDateOnly(dt) === key
-    })
+    const dayReviews = reviewsByDate.get(key) || []
+    const dayAlerts = alertsByDate.get(key) || []
     points.push({
       date: key,
       negativeReviews: dayReviews.filter((review) => review.sentiment === "negative").length,

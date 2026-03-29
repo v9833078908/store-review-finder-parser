@@ -23,6 +23,7 @@ import { isSearchAppHomePath } from "@/lib/base-path"
 import type { RunHistoryItem } from "@/lib/api-types"
 
 const DATE_PRESETS: DatePreset[] = ["24h", "7d", "14d", "30d", "90d", "custom"]
+const RUN_WINDOW_PRESETS: DatePreset[] = ["7d", "14d", "30d", "90d"]
 
 function formatRunLabel(item: RunHistoryItem, locale: string): string {
   const datePart = item.saved_at ? formatDateTime(item.saved_at, locale as "en" | "ru") : "—"
@@ -81,8 +82,18 @@ function DashboardHeader() {
   const currentRunId = searchParams.get("run_id") ?? data.runId ?? ""
 
   const handleRunSelect = (runId: string) => {
+    const selectedRun = runHistory.find((item) => item.run_id === runId)
     const params = new URLSearchParams(searchParams.toString())
     params.set("run_id", runId)
+    const selectedWindowMode = selectedRun?.window_mode
+    if (selectedWindowMode && RUN_WINDOW_PRESETS.includes(selectedWindowMode as DatePreset)) {
+      params.set("period", selectedWindowMode)
+      applyDateFilter({
+        preset: selectedWindowMode as DatePreset,
+        customFrom: "",
+        customTo: "",
+      })
+    }
     router.replace(`${pathname}?${params.toString()}`)
   }
 

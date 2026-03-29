@@ -106,7 +106,6 @@ async function fetchRunArtifact(runId: string, filters: RunFetchFilters): Promis
 async function fetchRunHistoryFromApi(limit = 10): Promise<RunHistoryResponse> {
   const url = browserUrl("/api/runs")
   url.searchParams.set("limit", String(limit))
-  url.searchParams.set("unique_apps", "true")
   const response = await fetch(url.toString(), { cache: "no-store" })
   if (!response.ok) {
     throw new Error(`Failed to fetch run history (${response.status})`)

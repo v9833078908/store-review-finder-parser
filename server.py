@@ -953,7 +953,7 @@ def _resolve_app_store_identity(url: str, selected_app_id: str | None) -> str:
     if match:
         return validate_app_store_id(match.group("app_id"))
 
-    raise ValueError("App Store report requires a numeric app_id.")
+    raise ValueError("App Store report requires a numeric app_id or full App Store URL.")
 
 
 @observe(name="generate_dashboard", capture_input=False, capture_output=False)

@@ -8,16 +8,27 @@ from typing import Any
 import httpx
 
 APP_STORE_ID_PATTERN = re.compile(r"^\d+$")
+APP_STORE_URL_ID_PATTERN = re.compile(r"/id(?P<app_id>\d+)(?:[/?#]|$)")
 APP_STORE_PAGE_SIZE = 50
 APP_STORE_PAGE_LIMIT = 10
 APP_STORE_MAX_REVIEWS = APP_STORE_PAGE_SIZE * APP_STORE_PAGE_LIMIT
 LOOKUP_URL = "https://itunes.apple.com/lookup"
 
 
-def validate_app_store_id(app_id: str) -> str:
-    normalized = str(app_id or "").strip()
-    if not normalized or not APP_STORE_ID_PATTERN.fullmatch(normalized):
+def extract_app_store_id(value: str) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
         raise ValueError("App Store app_id must be a numeric value.")
+    if APP_STORE_ID_PATTERN.fullmatch(normalized):
+        return normalized
+    match = APP_STORE_URL_ID_PATTERN.search(normalized)
+    if match:
+        return match.group("app_id")
+    raise ValueError("App Store app_id must be a numeric value.")
+
+
+def validate_app_store_id(app_id: str) -> str:
+    normalized = extract_app_store_id(app_id)
     return normalized
 
 

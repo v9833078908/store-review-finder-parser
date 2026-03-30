@@ -5,12 +5,22 @@ from sources.app_store import (
     _normalize_review_entry,
     build_customer_reviews_url,
     clamp_max_reviews,
+    extract_app_store_id,
     validate_app_store_id,
 )
 
 
 def test_validate_app_store_id_accepts_numeric_id() -> None:
     assert validate_app_store_id("123456789") == "123456789"
+
+
+def test_validate_app_store_id_accepts_full_app_store_url() -> None:
+    assert (
+        validate_app_store_id(
+            "https://apps.apple.com/ua/app/pirate-ships-build-and-fight/id1538178771?l=ru"
+        )
+        == "1538178771"
+    )
 
 
 def test_validate_app_store_id_rejects_non_numeric_value() -> None:
@@ -20,6 +30,15 @@ def test_validate_app_store_id_rejects_non_numeric_value() -> None:
         assert "numeric" in str(exc)
     else:
         raise AssertionError("Expected ValueError for non-numeric app id")
+
+
+def test_extract_app_store_id_rejects_non_app_store_url_without_id() -> None:
+    try:
+        extract_app_store_id("https://apps.apple.com/ua/app/pirate-ships-build-and-fight")
+    except ValueError as exc:
+        assert "numeric" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError for App Store URL without id")
 
 
 def test_build_customer_reviews_url_uses_country_page_and_app_id() -> None:

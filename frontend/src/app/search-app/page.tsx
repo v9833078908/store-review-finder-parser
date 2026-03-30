@@ -12,6 +12,7 @@ import { ScanForm } from "@/components/search-app/scan-form"
 import type { AppResult, ResolveResponse, ScanEvent, ScanParams } from "@/lib/lead-search/types"
 import type { DatePreset } from "@/lib/date-filters"
 import { listAllRegions } from "@/lib/regions"
+import { extractAppStoreId, isAppStoreInputValid, toAppStoreUrl } from "@/lib/app-store"
 import { apiPath, withBasePath } from "@/lib/base-path"
 
 type ScanState = "idle" | "scanning" | "done" | "error"
@@ -109,8 +110,8 @@ export default function SearchAppPage() {
         if ((store === "google_play" || store === "app_store") && !config.country?.trim()) {
           throw new Error(`Missing country for ${store}`)
         }
-        if (store === "app_store" && !/^\d+$/.test(trimmedUrl)) {
-          throw new Error("App Store input must be a numeric app_id.")
+        if (store === "app_store" && !isAppStoreInputValid(trimmedUrl)) {
+          throw new Error("App Store input must be a numeric app_id or full App Store URL.")
         }
         if (store === "yandex_games" && !YANDEX_GAMES_URL_RE.test(trimmedUrl)) {
           throw new Error("Yandex Games input must be a direct game URL.")
@@ -128,8 +129,13 @@ export default function SearchAppPage() {
           period: config.period,
         }
         if (store === "app_store") {
-          payload.app_id = trimmedUrl
-          payload.url = `https://apps.apple.com/app/id${trimmedUrl}`
+          const appId = extractAppStoreId(trimmedUrl)
+          const canonicalUrl = toAppStoreUrl(trimmedUrl)
+          if (!appId || !canonicalUrl) {
+            throw new Error("App Store input must be a numeric app_id or full App Store URL.")
+          }
+          payload.app_id = appId
+          payload.url = canonicalUrl
         }
         if (store === "google_play" || store === "app_store") {
           payload.country = String(config.country || "us").trim().toLowerCase()
@@ -287,7 +293,7 @@ export default function SearchAppPage() {
     if (!playInput.trim()) {
       setResolveError(
         reportStore === "app_store"
-          ? "Enter App Store numeric app_id first"
+          ? "Enter an App Store app_id or full App Store URL first"
           : reportStore === "yandex_games"
             ? "Paste a direct Yandex Games URL first"
             : reportStore === "vk_play"
@@ -298,8 +304,8 @@ export default function SearchAppPage() {
       )
       return
     }
-    if (reportStore === "app_store" && !/^\d+$/.test(playInput.trim())) {
-      setResolveError("App Store input must be a numeric app_id.")
+    if (reportStore === "app_store" && !isAppStoreInputValid(playInput.trim())) {
+      setResolveError("App Store input must be a numeric app_id or full App Store URL.")
       return
     }
     if (!usesYandexGamesFlow && !isCountryValid) {
@@ -421,7 +427,7 @@ export default function SearchAppPage() {
             <h2 className="mb-1 text-lg font-bold tracking-tight">Generate Report</h2>
             <p className="mb-5 text-sm text-muted-foreground">
               {reportStore === "app_store"
-                ? "Enter a numeric App Store app_id to analyze reviews"
+                ? "Enter an App Store app_id or paste a full App Store URL to analyze reviews"
                 : reportStore === "yandex_games"
                   ? "Paste a direct Yandex Games app URL to analyze reviews"
                   : reportStore === "vk_play"
@@ -467,7 +473,7 @@ export default function SearchAppPage() {
                 onChange={(event) => setPlayInput(event.target.value)}
                 placeholder={
                   reportStore === "app_store"
-                    ? "123456789"
+                    ? "1538178771 or https://apps.apple.com/ua/app/pirate-ships-build-and-fight/id1538178771?l=ru"
                     : reportStore === "yandex_games"
                       ? "https://yandex.ru/games/app/423744"
                       : reportStore === "vk_play"
@@ -549,7 +555,7 @@ export default function SearchAppPage() {
 
             <p className="mt-3 text-xs text-muted-foreground">
               {reportStore === "app_store"
-                ? "Numeric App Store app_id only · Up to 500 newest reviews from the selected period and region"
+                ? "App Store app_id or full App Store URL · Up to 500 newest reviews from the selected period and region"
                 : reportStore === "yandex_games"
                   ? "Direct Yandex Games URLs only · The scraper fetches the available feed and keeps reviews only for the selected period"
                   : reportStore === "vk_play"
@@ -692,7 +698,7 @@ export default function SearchAppPage() {
                           store === "google_play"
                             ? "https://play.google.com/store/apps/details?id=com.example"
                             : store === "app_store"
-                              ? "123456789"
+                              ? "1538178771 or https://apps.apple.com/ua/app/pirate-ships-build-and-fight/id1538178771?l=ru"
                               : store === "yandex_games"
                                 ? "https://yandex.ru/games/app/423744"
                                 : store === "vk_play"

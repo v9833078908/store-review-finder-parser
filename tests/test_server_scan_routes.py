@@ -125,3 +125,38 @@ def test_resolve_app_store_rejects_non_numeric_input() -> None:
     assert response.status_code == 422
     payload = response.json()
     assert "numeric" in payload["detail"]
+
+
+def test_resolve_app_store_accepts_full_url(monkeypatch) -> None:
+    async def fake_resolve_app_store_input(app_id: str, country: str):
+        assert app_id == "https://apps.apple.com/ua/app/pirate-ships-build-and-fight/id1538178771?l=ru"
+        assert country == "ua"
+        return {
+            "input_type": "app_store_id",
+            "recommended_app_id": "1538178771",
+            "candidates": [
+                {
+                    "app_id": "1538178771",
+                    "title": "Pirate Ships: Build and Fight",
+                    "url": "https://apps.apple.com/app/id1538178771",
+                    "score": 4.7,
+                    "reviews_count": 42000,
+                    "is_top1": True,
+                }
+            ],
+        }
+
+    monkeypatch.setattr(server, "resolve_app_store_input", fake_resolve_app_store_input, raising=False)
+
+    client = TestClient(server.app)
+    response = client.get(
+        "/api/resolve/app-store",
+        params={
+            "app_id": "https://apps.apple.com/ua/app/pirate-ships-build-and-fight/id1538178771?l=ru",
+            "country": "ua",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["recommended_app_id"] == "1538178771"
